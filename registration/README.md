@@ -23,7 +23,7 @@ conda install cudnn=7.6.0=cuda10.0_0
 ```
 #### install requirments
 ```bash
-pip install -r requirements.txt
+pip install -r requirement.txt
 pip install -r req.txt
 pip install --upgrade https://github.com/unlimblue/KNN_CUDA/releases/download/0.2/KNN_CUDA-0.2-py3-none-any.whl
 ```
