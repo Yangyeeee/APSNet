@@ -297,7 +297,6 @@ def main(args):
     logger.info('Start training...')
     for epoch in range(start_epoch,args.epoch):
         log_string('Epoch %d (%d/%s):' % (global_epoch + 1, epoch + 1, args.epoch))
-        a = []
         scheduler.step()
         for batch_id, data in tqdm(enumerate(trainDataLoader, 0), total=len(trainDataLoader), smoothing=0.9):
             points, target = data
@@ -313,7 +312,7 @@ def main(args):
             optimizer.zero_grad()
             sampler = sampler.train()
             sampler_loss,sampled_data,sampler_loss_info= compute_samplenet_loss(sampler, points, epoch)
-            a.append(sampler.m.item())
+
             # classifier = classifier.train()
             # points = torch.cat((sampled_data[1],points[:,:,3:]),dim=-1)
             points = sampled_data[1].transpose(2, 1)
@@ -335,7 +334,6 @@ def main(args):
         writer.add_scalar('loss/loss_task', np.mean(loss_task), epoch)
         writer.add_scalar('loss/loss_simple', np.mean(loss_simple), epoch)
 
-        writer.add_scalar('number', np.array(a).mean(), epoch)
         with torch.no_grad():
             instance_acc, class_acc,loss = test(classifier.eval(),sampler, testDataLoader,criterion)
 
