@@ -5,7 +5,7 @@
 ```
 ## train backbone
 
-python train_cls.py --model pointnet_cls --log_dir pointnet --gpu 1 --sess pointnet128 -b 128 --lr 0.01 --epoch 400
+python train_cls.py --model pointnet_cls --log_dir pointnet_rerun --gpu 1 --sess pointnet128 -b 128 --lr 0.01 --epoch 400
 
 ```
 
