@@ -30,10 +30,10 @@ sys.path.append(os.path.join(ROOT_DIR, 'models'))
 def parse_args():
     '''PARAMETERS'''
     parser = argparse.ArgumentParser('PointNet')
-    parser.add_argument('-b','--batch_size', type=int, default=32, help='batch size in training [default: 24]')
+    parser.add_argument('-b','--batch_size', type=int, default=32, help='batch size in training [default: 32]')
     parser.add_argument('--model', default='pointnet_cls', help='model name [default: pointnet_cls]')
     parser.add_argument('--epoch',  default=200, type=int, help='number of epoch in training [default: 200]')
-    parser.add_argument('--lr', default=0.01, type=float, help='learning rate in training [default: 0.001]')
+    parser.add_argument('--lr', default=0.01, type=float, help='learning rate in training [default: 0.01]')
     parser.add_argument('--gpu', type=str, default='0', help='specify gpu device [default: 0]')
     parser.add_argument('--num_point', type=int, default=1024, help='Point Number [default: 1024]')
     parser.add_argument('--optimizer', type=str, default='Adam', help='optimizer for training [default: Adam]')
@@ -44,8 +44,7 @@ def parse_args():
     parser.add_argument('--datafolder',  type=str, help='dataset folder')
     parser.add_argument("-in", "--num-in-points", type=int, default=1024, help="Number of input Points [default: 1024]")
     # For testing
-    parser.add_argument('--test', action='store_true',
-                        help='Perform testing routine. Otherwise, the script will train.')
+    parser.add_argument('--test', action='store_true', help='Perform testing routine. Otherwise, the script will train.')
     return parser.parse_args()
 
 def get_datasets(args):
@@ -83,6 +82,7 @@ def get_datasets(args):
         testset = testdata
 
     return trainset, testset
+
 def test(model, loader,criterion, num_class=40):
     mean_correct = []
     class_acc = np.zeros((num_class,3))
@@ -112,8 +112,6 @@ def main(args):
         logger.info(str)
         print(str)
 
-
-
     '''CREATE DIR'''
     timestr = str(datetime.datetime.now().strftime('%Y-%m-%d_%H-%M'))
     experiment_dir = Path('./log/')
@@ -131,7 +129,7 @@ def main(args):
     log_dir.mkdir(exist_ok=True)
 
     '''LOG'''
-    args = parse_args()
+    #args = parse_args()
     current_time = time.strftime('%d_%H:%M:%S', localtime())
     writer = SummaryWriter(log_dir='runs/' + current_time+"_" + args.sess, flush_secs=30)
     logger = logging.getLogger("Model")
@@ -150,12 +148,8 @@ def main(args):
 
     trainset, testset = get_datasets(args)
     # dataloader
-    testDataLoader = torch.utils.data.DataLoader(
-        testset, batch_size=args.batch_size, shuffle=False, num_workers=4
-    )
-    trainDataLoader = torch.utils.data.DataLoader(
-        trainset, batch_size=args.batch_size, shuffle=True, num_workers=4
-    )
+    testDataLoader = torch.utils.data.DataLoader(testset, batch_size=args.batch_size, shuffle=False, num_workers=4)
+    trainDataLoader = torch.utils.data.DataLoader(trainset, batch_size=args.batch_size, shuffle=True, num_workers=4)
 
 
     # TRAIN_DATASET = ModelNetDataLoader(root=DATA_PATH, npoint=args.num_point, split='train',
@@ -171,7 +165,7 @@ def main(args):
     # shutil.copy('./models/%s.py' % args.model, str(experiment_dir))
     # shutil.copy('./models/pointnet_util.py', str(experiment_dir))
 
-    classifier = MODEL.get_model(num_class,normal_channel=args.normal).cuda()
+    classifier = MODEL.get_model(num_class, normal_channel=args.normal).cuda()
     criterion = MODEL.get_loss().cuda()
     #
     # try:
@@ -236,7 +230,7 @@ def main(args):
         writer.add_scalar('acc/train', train_instance_acc, epoch)
 
         with torch.no_grad():
-            instance_acc, class_acc,loss = test(classifier.eval(), testDataLoader,criterion)
+            instance_acc, class_acc, loss = test(classifier.eval(), testDataLoader, criterion)
 
             if (instance_acc >= best_instance_acc):
                 best_instance_acc = instance_acc
@@ -244,6 +238,7 @@ def main(args):
 
             if (class_acc >= best_class_acc):
                 best_class_acc = class_acc
+
             log_string('Test Instance Accuracy: %f, Class Accuracy: %f'% (instance_acc, class_acc))
             log_string('Best Instance Accuracy: %f, Class Accuracy: %f'% (best_instance_acc, best_class_acc))
             writer.add_scalar('acc/test_i', instance_acc, epoch)
