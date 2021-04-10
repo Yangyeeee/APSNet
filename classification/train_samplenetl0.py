@@ -2,7 +2,7 @@
 Author: Benny
 Date: Nov 2019
 """
-from data_utils.ModelNetDataLoader import ModelNetDataLoader
+
 import argparse
 import numpy as np
 import os
@@ -20,7 +20,7 @@ from time import localtime
 from torch.utils.tensorboard import SummaryWriter
 
 from data.modelnet_loader_torch import ModelNetCls
-from src.pctransforms import OnUnitCube, PointcloudToTensor
+
 import torchvision
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 ROOT_DIR = BASE_DIR
@@ -342,12 +342,16 @@ def main(args):
         writer.add_scalar('loss/loss_task', np.mean(loss_task), epoch)
         writer.add_scalar('loss/loss_l0', np.mean(loss_l0), epoch)
         writer.add_scalar('loss/loss_simple', np.mean(loss_simple), epoch)
+        writer.add_scalar('loss/train_loss', np.mean(loss_task) + np.mean(loss_simple) + np.mean(loss_l0), epoch)
 
         writer.add_scalar('number', np.array(a).mean(), epoch)
-        sampler.k = torch.tensor(np.array(a).mean()).int()
+        t_tmp= torch.tensor(np.array(a).mean()).int()
+        sampler.k = t_tmp
         with torch.no_grad():
             instance_acc, class_acc,loss = test(classifier.eval(),sampler, testDataLoader,criterion)
-
+            sampler.k = 32
+            instance_acc32, class_acc32, _ = test(classifier.eval(), sampler, testDataLoader, criterion)
+            sampler.k = t_tmp
             if (instance_acc >= best_instance_acc):
                 best_instance_acc = instance_acc
                 best_epoch = epoch + 1
@@ -358,6 +362,8 @@ def main(args):
             log_string('Best Instance Accuracy: %f, Class Accuracy: %f'% (best_instance_acc, best_class_acc))
             writer.add_scalar('acc/test_i', instance_acc, epoch)
             writer.add_scalar('acc/test_c', class_acc, epoch)
+            writer.add_scalar('acc/test_i_32', instance_acc32, epoch)
+            writer.add_scalar('acc/test_c_32', class_acc32, epoch)
             writer.add_scalar('loss/test', loss, epoch)
 
             if (instance_acc >= best_instance_acc):

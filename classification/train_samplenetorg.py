@@ -20,7 +20,7 @@ from time import localtime
 from torch.utils.tensorboard import SummaryWriter
 
 from data.modelnet_loader_torch import ModelNetCls
-from src.pctransforms import OnUnitCube, PointcloudToTensor
+
 import torchvision
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 ROOT_DIR = BASE_DIR
