@@ -30,10 +30,10 @@ sys.path.append(os.path.join(ROOT_DIR, 'models'))
 def parse_args():
     '''PARAMETERS'''
     parser = argparse.ArgumentParser('PointNet')
-    parser.add_argument('-b','--batch_size', type=int, default=32, help='batch size in training [default: 24]')
+    parser.add_argument('-b','--batch_size', type=int, default=32, help='batch size in training [default: 32]')
     parser.add_argument('--model', default='pointnet_cls', help='model name [default: pointnet_cls]')
     parser.add_argument('--epoch',  default=200, type=int, help='number of epoch in training [default: 200]')
-    parser.add_argument('--lr', default=0.01, type=float, help='learning rate in training [default: 0.001]')
+    parser.add_argument('--lr', default=0.01, type=float, help='learning rate in training [default: 0.01]')
     parser.add_argument('--gpu', type=str, default='0', help='specify gpu device [default: 0]')
     parser.add_argument('--num_point', type=int, default=1024, help='Point Number [default: 1024]')
     parser.add_argument('--optimizer', type=str, default='Adam', help='optimizer for training [default: Adam]')
@@ -42,11 +42,10 @@ def parse_args():
     parser.add_argument('--decay_rate', type=float, default=1e-4, help='decay rate [default: 1e-4]')
     parser.add_argument('--normal', action='store_true', default=False, help='Whether to use normal information [default: False]')
 
-    parser.add_argument('--sampler', required=True, default="samplenet", choices=['fps', 'samplenet', 'random', 'none'], type=str,
-                        help='Sampling method.')
+    parser.add_argument('--sampler', required=True, default="samplenet", choices=['fps', 'samplenet', 'random', 'none'], type=str, help='Sampling method.')
     parser.add_argument('--train-samplenet', action='store_true', default=True,help='Allow SampleNet training.')
     parser.add_argument('--train_cls', action='store_true', default=False, help='Allow calssifier training.')
-    parser.add_argument('--num_out_points', type=int, default=32, help='sampled Point Number [default: 64]')
+    parser.add_argument('--num_out_points', type=int, default=32, help='sampled Point Number [default: 32]')
     parser.add_argument('--projection_group_size', type=int, default=8, help='projection_group_size')
     parser.add_argument('--bottleneck_size', type=int, default=128, help='bottleneck_size')
     parser.add_argument('--a', default=0.01, type=float, help='alpha')
@@ -54,8 +53,7 @@ def parse_args():
     parser.add_argument('--datafolder',  type=str, help='dataset folder')
     parser.add_argument("-in", "--num-in-points", type=int, default=1024, help="Number of input Points [default: 1024]")
     # For testing
-    parser.add_argument('--test', action='store_true',
-                        help='Perform testing routine. Otherwise, the script will train.')
+    parser.add_argument('--test', action='store_true', help='Perform testing routine. Otherwise, the script will train.')
     return parser.parse_args()
 
 def batched_index_select(input, dim, index):
@@ -137,9 +135,6 @@ def main(args):
         logger.info(str)
         print(str)
 
-    '''HYPER PARAMETER'''
-
-
     '''CREATE DIR'''
     timestr = str(datetime.datetime.now().strftime('%Y-%m-%d_%H-%M'))
     experiment_dir = Path('./log/')
@@ -176,12 +171,8 @@ def main(args):
 
     trainset, testset = get_datasets(args)
     # dataloader
-    testDataLoader = torch.utils.data.DataLoader(
-        testset, batch_size=args.batch_size, shuffle=False, num_workers=4
-    )
-    trainDataLoader = torch.utils.data.DataLoader(
-        trainset, batch_size=args.batch_size, shuffle=True, num_workers=4
-    )
+    testDataLoader = torch.utils.data.DataLoader(testset, batch_size=args.batch_size, shuffle=False, num_workers=4)
+    trainDataLoader = torch.utils.data.DataLoader(trainset, batch_size=args.batch_size, shuffle=True, num_workers=4)
 
 
     # TRAIN_DATASET = ModelNetDataLoader(root=DATA_PATH, npoint=args.num_point, split='train',
@@ -275,9 +266,7 @@ def main(args):
         p0_simplified, p0_projected = sampler(p0)
 
         # Sampling loss
-        p0_simplification_loss = sampler.get_simplification_loss(
-            p0, p0_simplified, 64, 1, 0
-        )
+        p0_simplification_loss = sampler.get_simplification_loss(p0, p0_simplified, 64, 1, 0)
 
         simplification_loss = p0_simplification_loss
         sampled_data = (p0, p0_projected)
@@ -307,11 +296,10 @@ def main(args):
             points = torch.Tensor(points)
             target = target[:, 0]
 
-
             points, target = points.cuda(), target.cuda()
             optimizer.zero_grad()
             sampler = sampler.train()
-            sampler_loss,sampled_data,sampler_loss_info= compute_samplenet_loss(sampler, points, epoch)
+            sampler_loss, sampled_data, sampler_loss_info = compute_samplenet_loss(sampler, points, epoch)
 
             # classifier = classifier.train()
             # points = torch.cat((sampled_data[1],points[:,:,3:]),dim=-1)
