@@ -29,17 +29,18 @@ sys.path.append(os.path.join(ROOT_DIR, 'models'))
 
 def parse_args():
     '''PARAMETERS'''
-    parser = argparse.ArgumentParser('PointNet')
+    parser = argparse.ArgumentParser('SSN')
     parser.add_argument('-b','--batch_size', type=int, default=32, help='batch size in training [default: 32]')
     parser.add_argument('--model', default='pointnet_cls', help='model name [default: pointnet_cls]')
     parser.add_argument('--epoch',  default=200, type=int, help='number of epoch in training [default: 200]')
     parser.add_argument('--lr', default=0.01, type=float, help='learning rate in training [default: 0.01]')
     parser.add_argument('--gpu', type=str, default='0', help='specify gpu device [default: 0]')
-    parser.add_argument('--num_point', type=int, default=1024, help='Point Number [default: 1024]')
+    #parser.add_argument('--num_point', type=int, default=1024, help='Point Number [default: 1024]')
     parser.add_argument('--optimizer', type=str, default='Adam', help='optimizer for training [default: Adam]')
     parser.add_argument('--log_dir', type=str, default=None, help='experiment root')
     parser.add_argument('--sess', type=str, default="default", help='session')
-    parser.add_argument('--decay_rate', type=float, default=1e-4, help='decay rate [default: 1e-4]')
+    parser.add_argument('--weight_decay', type=float, default=1e-4, help='decay rate [default: 1e-4]')
+    parser.add_argument('--decay_rate', type=float, default=0.7, help='decay rate [default: 0.7]')
     parser.add_argument('--normal', action='store_true', default=False, help='Whether to use normal information [default: False]')
     parser.add_argument('--ar', action='store_true', default=False, help='ar [default: False]')
 
@@ -47,11 +48,9 @@ def parse_args():
     parser.add_argument('--train-samplenet', action='store_true', default=True,help='Allow SampleNet training.')
     parser.add_argument('--train_cls', action='store_true', default=False, help='Allow calssifier training.')
     parser.add_argument('--num_out_points', type=int, default=32, help='sampled Point Number [default: 32]')
-    parser.add_argument('--projection_group_size', type=int, default=8, help='projection_group_size')
     parser.add_argument('--bottleneck_size', type=int, default=128, help='bottleneck_size')
-    parser.add_argument('--a', default=0.01, type=float, help='alpha')
-    parser.add_argument('--b', default=0.01, type=float, help='lmbda')
-    parser.add_argument('--l0', default=1e-6, type=float, help='l0')
+    parser.add_argument('--beta', default=1.0, type=float, help='beta for coverage loss')
+    parser.add_argument('--l0', default=1.0, type=float, help='lambda for l0')
     parser.add_argument('--datafolder',  type=str, help='dataset folder')
     parser.add_argument("-in", "--num-in-points", type=int, default=1024, help="Number of input Points [default: 1024]")
     # For testing
@@ -112,11 +111,11 @@ def test(model,sampler, loader,criterion, num_class=40):
         target = target[:, 0]
         points, target = points.cuda(), target.cuda()
         sampler = sampler.eval()
-        p0_simplified, p0_projected = sampler(points,0)
+        simplified = sampler(points, 0)
         # y = batched_index_select(points[:, :, 3:], 1, ind)
         # points = torch.cat((p0_projected, y), dim=-1)
 
-        points = p0_projected.transpose(2, 1)
+        points = simplified.transpose(2, 1)
 
         classifier = model.eval()
         pred, trans_feat = classifier(points)
@@ -215,13 +214,13 @@ def main(args):
         # Create sampling network
     if args.sampler == "samplenet":
         sampler = SampleNet(
-            num_out_points=args.num_out_points,
+            #num_out_points=args.num_out_points,
             bottleneck_size=args.bottleneck_size,
-            group_size=args.projection_group_size,
-            initial_temperature=1.0,
+            #group_size=args.projection_group_size,
+            #initial_temperature=1.0,
             input_shape="bnc",
             output_shape="bnc",
-            skip_projection=False,
+            #skip_projection=False,
         ).cuda()
 
         if args.train_samplenet:
@@ -250,12 +249,12 @@ def main(args):
             lr=args.lr,
             betas=(0.9, 0.999),
             eps=1e-08,
-            weight_decay=args.decay_rate
+            weight_decay=args.weight_decay
         )
     else:
         optimizer = torch.optim.SGD(sampler.parameters(), lr=0.01, momentum=0.9)
 
-    scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=20, gamma=0.7)
+    scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=20, gamma=args.decay_rate)
     global_epoch = 0
     global_step = 0
     best_instance_acc = 0.0
@@ -263,30 +262,17 @@ def main(args):
     mean_correct = []
     loss_task = []
     loss_l0 = []
-    loss_simple = []
+    loss_coverage = []
 
     def compute_samplenet_loss(sampler, data, epoch):
         """Sample point clouds using SampleNet and compute sampling associated losses."""
 
-        p0 = data
-        p0_simplified, p0_projected = sampler(p0, epoch)
+        simplified = sampler(data, epoch)
 
         # Sampling loss
-        p0_simplification_loss = sampler.get_simplification_loss(p0, p0_simplified, 64, 1, 0)
+        coverage_loss = sampler.get_simplification_loss(data, simplified)
 
-        simplification_loss = p0_simplification_loss
-        sampled_data = (p0, p0_projected)
-        # Projection loss
-        # projection_loss = sampler.get_projection_loss()
-
-        samplenet_loss = args.a * simplification_loss #+ args.b * projection_loss
-
-        samplenet_loss_info = {
-            "simplification_loss": simplification_loss,
-            "projection_loss": 0, #projection_loss,
-        }
-
-        return samplenet_loss, sampled_data, samplenet_loss_info
+        return coverage_loss, simplified
 
     '''TRANING'''
     logger.info('Start training...')
@@ -295,8 +281,8 @@ def main(args):
         sampler = sampler.train()
         a = []
 
-        scheduler.step()
         for batch_id, data in tqdm(enumerate(trainDataLoader, 0), total=len(trainDataLoader), smoothing=0.9):
+        #for i in range(0):
             points, target = data
             points = points.data.numpy()
             points = provider.random_point_dropout(points)
@@ -307,27 +293,28 @@ def main(args):
             writer.add_scalar('loss/K', sampler.k1, epoch * len(trainDataLoader) + batch_id)
 
             points, target = points.cuda(), target.cuda()
-            sampler.loss = 0
+            #sampler.loss = 0
             if sampler.training:
                 sampler.forward_mode = True
                 optimizer.zero_grad()
 
-                sampler_loss, sampled_data, sampler_loss_info = compute_samplenet_loss(sampler, points, epoch)
+                coverage_loss, sampled_data = compute_samplenet_loss(sampler, points, epoch)
                 a.append(sampler.num.item())
                 # classifier = classifier.train()
                 # points = torch.cat((sampled_data[1],points[:,:,3:]),dim=-1)
-                points = sampled_data[1].transpose(2, 1)
+                points = sampled_data.transpose(2, 1)
                 pred, trans_feat = classifier(points)
                 loss_t = criterion(pred, target.long(), trans_feat)
-                loss_l = sampler.loss * args.l0
-                loss_s = sampler_loss
-                l0_grad = sampler.grad * args.l0
+                loss_l = sampler.l0_loss * args.l0
+                loss_c = coverage_loss * args.beta
+                grad_l0 = sampler.l0_grad * args.l0
+
                 sampler.eval()
                 if args.ar is not True:
                     sampler.forward_mode = False
                     if sampler is not None: # and model.sampler.name == "samplenet":
                         points = points.transpose(2, 1)
-                        sampler_loss1,sampled_data1,sampler_loss_info1= compute_samplenet_loss(sampler, points, epoch)
+                        sampler_loss1, sampled_data1 = compute_samplenet_loss(sampler, points, epoch)
 
 
                     # elif model.sampler is not None and model.sampler.name == "fps":
@@ -341,30 +328,31 @@ def main(args):
                     #     projection_loss = torch.tensor(0, dtype=torch.float32)
                     #     sampler_loss = torch.tensor(0, dtype=torch.float32)
 
-                    points = sampled_data[1].transpose(2, 1)
+                    points = sampled_data1.transpose(2, 1)
                     pred, trans_feat = classifier(points)
                     loss1 = criterion(pred, target.long(), trans_feat)
                 else:
                     loss1 = 0
                     sampler_loss1 = 0
                 sampler.f1 = loss1 + sampler_loss1
-                sampler.f2 = loss_t + loss_s
+                sampler.f2 = loss_t + loss_c
 
                 sampler.train()
 
                 pred_choice = pred.data.max(1)[1]
                 correct = pred_choice.eq(target.long().data).cpu().sum()
                 mean_correct.append(correct.item() / float(points.size()[0]))
+
                 if sampler.training:
                     # model.sampler.loga.register_hook(model.sampler.update_phi_gradient)
-                    grad = sampler.update_phi_gradient()
-                    sampler.loga.backward(gradient=(grad + l0_grad), retain_graph=False)
+                    grad_arm = sampler.update_phi_gradient()
+                    sampler.loga.backward(gradient=(grad_arm + grad_l0), retain_graph=False)
 
                 optimizer.step()
                 global_step += 1
                 loss_task.append(loss_t.item())
                 loss_l0.append(loss_l.item())
-                loss_simple.append(loss_s.item())
+                loss_coverage.append(loss_c.item())
                 #if epoch >= 200:
                 #    k1 = sampler.k1
                 #    k1 +=  (sampler.loss - 0.03125)
@@ -372,22 +360,23 @@ def main(args):
                 #    k1 = torch.min(torch.tensor([1e5, k1])).item()
                 #    sampler.k1 = k1
 
+        scheduler.step()
         train_instance_acc = np.mean(mean_correct)
         log_string('Train Instance Accuracy: %f' % train_instance_acc)
         writer.add_scalar('acc/train', train_instance_acc, epoch)
         writer.add_scalar('loss/loss_task', np.mean(loss_task), epoch)
         writer.add_scalar('loss/loss_l0', np.mean(loss_l0), epoch)
-        writer.add_scalar('loss/loss_simple', np.mean(loss_simple), epoch)
-        writer.add_scalar('loss/train_loss', np.mean(loss_task) + np.mean(loss_simple) + np.mean(loss_l0), epoch)
-        writer.add_scalar('number', np.array(a).mean(), epoch)
+        writer.add_scalar('loss/loss_coverage', np.mean(loss_coverage), epoch)
+        writer.add_scalar('loss/train_loss', np.mean(loss_task) + np.mean(loss_coverage) + np.mean(loss_l0), epoch)
+        writer.add_scalar('number/train', np.array(a).mean(), epoch)
 
-        t_tmp= torch.tensor(np.array(a).mean()).int()
-        sampler.k = t_tmp
+        #t_tmp= torch.tensor(np.array(a).mean()).int()
+        #sampler.k = t_tmp
         with torch.no_grad():
-            instance_acc, class_acc,loss = test(classifier.eval(),sampler, testDataLoader,criterion)
-            sampler.k = 32
-            instance_acc32, class_acc32, _ = test(classifier.eval(), sampler, testDataLoader, criterion)
-            sampler.k = t_tmp
+            instance_acc, class_acc, loss = test(classifier.eval(), sampler, testDataLoader, criterion)
+            #sampler.k = 32
+            #instance_acc32, class_acc32, _ = test(classifier.eval(), sampler, testDataLoader, criterion)
+            #sampler.k = t_tmp
             if (instance_acc >= best_instance_acc):
                 best_instance_acc = instance_acc
                 best_epoch = epoch + 1
@@ -398,9 +387,10 @@ def main(args):
             log_string('Best Instance Accuracy: %f, Class Accuracy: %f'% (best_instance_acc, best_class_acc))
             writer.add_scalar('acc/test_i', instance_acc, epoch)
             writer.add_scalar('acc/test_c', class_acc, epoch)
-            writer.add_scalar('acc/test_i_32', instance_acc32, epoch)
-            writer.add_scalar('acc/test_c_32', class_acc32, epoch)
+            #writer.add_scalar('acc/test_i_32', instance_acc32, epoch)
+            #writer.add_scalar('acc/test_c_32', class_acc32, epoch)
             writer.add_scalar('loss/test', loss, epoch)
+            writer.add_scalar('number/test', sampler.num.item(), epoch)
 
             if (instance_acc >= best_instance_acc):
                 logger.info('Save model...')
@@ -423,8 +413,8 @@ if __name__ == '__main__':
     args = parse_args()
     os.environ["CUDA_VISIBLE_DEVICES"] = args.gpu
     from src import ChamferDistance, FPSSampler, RandomSampler
-    from src import sputils
+    #from src import sputils
     from src.pctransforms import OnUnitCube, PointcloudToTensor
-    from src.qdataset import QuaternionFixedDataset, QuaternionTransform, rad_to_deg
+    #from src.qdataset import QuaternionFixedDataset, QuaternionTransform, rad_to_deg
     from src.samplenetl0arm import SampleNet
     main(args)
