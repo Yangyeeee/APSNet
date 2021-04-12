@@ -17,7 +17,7 @@ class get_model(nn.Module):
         self.dropout = nn.Dropout(p=0.4)
         self.bn1 = nn.BatchNorm1d(512)
         self.bn2 = nn.BatchNorm1d(256)
-        self.relu = nn.ReLU()
+        #self.relu = nn.ReLU()
 
     def forward(self, x):
         x, trans, trans_feat = self.feat(x)

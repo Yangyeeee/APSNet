@@ -379,8 +379,8 @@ def main(args):
         writer.add_scalar('loss/loss_l0', np.mean(loss_l0), epoch)
         writer.add_scalar('loss/loss_simple', np.mean(loss_simple), epoch)
         writer.add_scalar('loss/train_loss', np.mean(loss_task) + np.mean(loss_simple) + np.mean(loss_l0), epoch)
-
         writer.add_scalar('number', np.array(a).mean(), epoch)
+
         t_tmp= torch.tensor(np.array(a).mean()).int()
         sampler.k = t_tmp
         with torch.no_grad():

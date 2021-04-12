@@ -113,9 +113,7 @@ class SampleNet(nn.Module):
         self.bn_fc3 = nn.BatchNorm1d(256)
 
         # projection and matching
-        self.project = SoftProjection(
-            group_size, initial_temperature, is_temperature_trainable, min_sigma
-        )
+        self.project = SoftProjection(group_size, initial_temperature, is_temperature_trainable, min_sigma)
         self.skip_projection = skip_projection
         self.complete_fps = complete_fps
 
@@ -182,14 +180,15 @@ class SampleNet(nn.Module):
         l0 = pi.mean()
         return l0
 
-    def get_grad(self, loga):
+    def get_grad_loss(self, loga):
         if self.hardsigmoid:
             pi = F.hardtanh(self.k1 * loga / 7. + .5, 0, 1)
         else:
             pi = torch.sigmoid(self.k1 * loga)
 
-        grad = pi*(1-pi)*self.k1/loga.shape[0]
-        return grad
+        l0 = pi.mean()
+        grad = pi*(1-pi)*self.k1/loga.numel() #shape[0]
+        return grad, l0
 
     def update_phi_gradient(self):
         # only deal with first part of gradient
@@ -231,15 +230,15 @@ class SampleNet(nn.Module):
         self.loga = loga
 
         if self.training:
-            self.grad = self.get_grad(loga)
-            self.loss = self.get_loss(loga)
+            self.grad, self.loss = self.get_grad_loss(loga)
+            #self.loss = self.get_loss(loga)
 
         m = self.sample_z(loga)
         y = x * m.unsqueeze(1)
 
         ind = torch.topk(loga, self.k, dim=-1)[1]
         self.ind  = ind
-        self.num = (m > 0).squeeze().sum(-1).float().mean()
+        self.num = (m > 0).sum(-1).float().mean()
 
 
         # Simplified points
