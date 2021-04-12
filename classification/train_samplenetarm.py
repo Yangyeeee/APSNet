@@ -1,8 +1,3 @@
-"""
-Author: Benny
-Date: Nov 2019
-"""
-
 import argparse
 import numpy as np
 import os
@@ -13,12 +8,12 @@ from pathlib import Path
 from tqdm import tqdm
 import sys
 import importlib
-import shutil
 import time
 import provider
 from time import localtime
 from torch.utils.tensorboard import SummaryWriter
-
+from src.pctransforms import OnUnitCube, PointcloudToTensor
+from src.samplenetl0arm import SampleNet
 from data.modelnet_loader_torch import ModelNetCls
 
 import torchvision
@@ -35,7 +30,6 @@ def parse_args():
     parser.add_argument('--epoch',  default=200, type=int, help='number of epoch in training [default: 200]')
     parser.add_argument('--lr', default=0.01, type=float, help='learning rate in training [default: 0.01]')
     parser.add_argument('--gpu', type=str, default='0', help='specify gpu device [default: 0]')
-    #parser.add_argument('--num_point', type=int, default=1024, help='Point Number [default: 1024]')
     parser.add_argument('--optimizer', type=str, default='Adam', help='optimizer for training [default: Adam]')
     parser.add_argument('--log_dir', type=str, default=None, help='experiment root')
     parser.add_argument('--sess', type=str, default="default", help='session')
@@ -43,7 +37,6 @@ def parse_args():
     parser.add_argument('--decay_rate', type=float, default=0.7, help='decay rate [default: 0.7]')
     parser.add_argument('--normal', action='store_true', default=False, help='Whether to use normal information [default: False]')
     parser.add_argument('--ar', action='store_true', default=False, help='ar [default: False]')
-
     parser.add_argument('--sampler', required=True, default="samplenet", choices=['fps', 'samplenet', 'random', 'none'], type=str, help='Sampling method.')
     parser.add_argument('--train-samplenet', action='store_true', default=True,help='Allow SampleNet training.')
     parser.add_argument('--train_cls', action='store_true', default=False, help='Allow calssifier training.')
@@ -156,7 +149,6 @@ def main(args):
     log_dir.mkdir(exist_ok=True)
 
     '''LOG'''
-    #args = parse_args()
     current_time = time.strftime('%d_%H:%M:%S', localtime())
     writer = SummaryWriter(log_dir='runs/' + current_time+"_" + args.sess, flush_secs=30)
     logger = logging.getLogger("Model")
@@ -214,13 +206,9 @@ def main(args):
         # Create sampling network
     if args.sampler == "samplenet":
         sampler = SampleNet(
-            #num_out_points=args.num_out_points,
             bottleneck_size=args.bottleneck_size,
-            #group_size=args.projection_group_size,
-            #initial_temperature=1.0,
             input_shape="bnc",
-            output_shape="bnc",
-            #skip_projection=False,
+            output_shape="bnc"
         ).cuda()
 
         if args.train_samplenet:
@@ -412,9 +400,4 @@ def main(args):
 if __name__ == '__main__':
     args = parse_args()
     os.environ["CUDA_VISIBLE_DEVICES"] = args.gpu
-    from src import ChamferDistance, FPSSampler, RandomSampler
-    #from src import sputils
-    from src.pctransforms import OnUnitCube, PointcloudToTensor
-    #from src.qdataset import QuaternionFixedDataset, QuaternionTransform, rad_to_deg
-    from src.samplenetl0arm import SampleNet
     main(args)

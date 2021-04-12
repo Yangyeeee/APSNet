@@ -68,19 +68,11 @@ def batched_index_select(input, dim, index):
 class SampleNet(nn.Module):
     def __init__(
         self,
-        #num_out_points,
         bottleneck_size,
-        #group_size,
-        #initial_temperature=1.0,
-        #is_temperature_trainable=True,
-        #min_sigma=1e-2,
         input_shape="bcn",
-        output_shape="bcn",
-        #complete_fps=True,
-        #skip_projection=False,
+        output_shape="bcn"
     ):
         super().__init__()
-        #self.num_out_points = num_out_points
         self.name = "samplenet"
         # self.sampler = soft.TopK_custom(num_out_points, epsilon=epsilon, max_iter=num_iter)
         self.conv1 = torch.nn.Conv1d(3, 64, 1)
@@ -88,14 +80,12 @@ class SampleNet(nn.Module):
         self.conv3 = torch.nn.Conv1d(64, 64, 1)
         self.conv4 = torch.nn.Conv1d(64, 128, 1)
         self.conv5 = torch.nn.Conv1d(128, bottleneck_size, 1)
-        #self.conv6 = torch.nn.Conv1d(bottleneck_size, 1, 1)
 
         self.bn1 = nn.BatchNorm1d(64)
         self.bn2 = nn.BatchNorm1d(64)
         self.bn3 = nn.BatchNorm1d(64)
         self.bn4 = nn.BatchNorm1d(128)
         self.bn5 = nn.BatchNorm1d(bottleneck_size)
-        #self.bn6 = nn.BatchNorm1d(1)
 
         self.fc1 = nn.Linear(bottleneck_size, 256)
         self.fc2 = nn.Linear(256, 256)
@@ -107,15 +97,9 @@ class SampleNet(nn.Module):
         # self.fc4 = torch.nn.Conv1d(256, 1, 1)
         # self.fcp = nn.Linear(bottleneck_size, 1, bias=False)
 
-
         self.bn_fc1 = nn.BatchNorm1d(256)
         self.bn_fc2 = nn.BatchNorm1d(256)
         self.bn_fc3 = nn.BatchNorm1d(256)
-
-        # projection and matching
-        #self.project = SoftProjection(group_size, initial_temperature, is_temperature_trainable, min_sigma)
-        #self.skip_projection = skip_projection
-        #self.complete_fps = complete_fps
 
         # input / output shapes
         if input_shape not in ["bcn", "bnc"]:
@@ -131,8 +115,6 @@ class SampleNet(nn.Module):
         self.l0_grad = torch.tensor(0)
         self.num = torch.tensor(0)
         self.m = None
-        # self.a = [1024,512,256,128,64]
-        # self.bias_l0 = nn.Parameter(torch.FloatTensor([20]))
         self.loga = torch.tensor(0)
         self.f1 = torch.tensor(0)
         self.f2 = torch.tensor(0)
@@ -153,7 +135,6 @@ class SampleNet(nn.Module):
         else:
             pi = torch.sigmoid(self.k1 * loga) #.detach()
 
-        #self.m = pi.view(-1).clone().detach_()
         if self.forward_mode:
             z = torch.zeros_like(loga)
             self.u = torch.zeros(loga.shape[1]).to(loga.device).uniform_(0, 1).expand(loga.shape[0], loga.shape[1])  # torch.zeros_like(loga).uniform_(0, 1)
@@ -234,7 +215,6 @@ class SampleNet(nn.Module):
 
         if self.training:
             self.l0_grad, self.l0_loss = self.get_grad_loss(loga)
-            #self.loss = self.get_loss(loga)
 
         m = self.sample_z(loga)
         self.num = (m > 0).sum(-1).float().mean()
@@ -242,24 +222,9 @@ class SampleNet(nn.Module):
 
         #ind = torch.topk(loga, self.k, dim=-1)[1]
         #self.ind  = ind
-
-
         # Simplified points
         #simp = batched_index_select(y, 2, ind)
         simp = y
-
-        # Projected points
-        #if self.training:
-        #    if not self.skip_projection:
-        #        proj = self.project(point_cloud=x, query_cloud=y)
-        #    else:
-        #        proj = simp
-
-        # Matched points
-        #else:  # Inference
-        #    y = batched_index_select(x, 2, ind)
-        #    match = y.permute(0,2,1)
-
 
         # Change to output shapes
         if self.output_shape == "bnc":
