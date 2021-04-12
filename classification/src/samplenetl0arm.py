@@ -98,9 +98,9 @@ class SampleNet(nn.Module):
         #self.bn6 = nn.BatchNorm1d(1)
 
         self.fc1 = nn.Linear(bottleneck_size, 256)
-        self.fc2 = nn.Linear(256, 256, bias=False)
-        self.fc3 = nn.Linear(256, 256, bias=False)
-        self.fc4 = nn.Linear(256, 1024, bias=False)
+        self.fc2 = nn.Linear(256, 256)
+        self.fc3 = nn.Linear(256, 256)
+        self.fc4 = nn.Linear(256, 1024)
         # self.fc1 = torch.nn.Conv1d(bottleneck_size*2, 256, 1)
         # self.fc2 = torch.nn.Conv1d(256, 256, 1)
         # self.fc3 = torch.nn.Conv1d(256, 256, 1)
@@ -134,7 +134,7 @@ class SampleNet(nn.Module):
         self.num = torch.tensor(0)
         self.m = None
         # self.a = [1024,512,256,128,64]
-        self.bias_l0 = nn.Parameter(torch.FloatTensor([20]))
+        # self.bias_l0 = nn.Parameter(torch.FloatTensor([20]))
         self.loga = torch.tensor(0)
         self.f1 = torch.tensor(0)
         self.f2 = torch.tensor(0)
@@ -146,6 +146,7 @@ class SampleNet(nn.Module):
         self.local_rep = True
         self.forward_mode = True
         self.ar = True
+        self.fc4.bias.data.fill_(3. / self.k1)
 
     def sample_z(self,loga):
 
@@ -224,7 +225,7 @@ class SampleNet(nn.Module):
         y = F.relu(self.fc1(y))
         y = F.relu(self.fc2(y))
         y = F.relu(self.fc3(y))
-        loga = self.fc4(y)+ self.bias_l0 #.reshape((x.shape[0],x.shape[2]))
+        loga = self.fc4(y) #+ self.bias_l0 #.reshape((x.shape[0],x.shape[2]))
 
 
         self.loga = loga
