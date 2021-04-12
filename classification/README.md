@@ -20,7 +20,7 @@ python train_samplenetorg.py --model pointnet_cls --log_dir pointnet --gpu 4 --s
 ```
 ## train samplenet L0
 
-python train_samplenetarm.py --model pointnet_cls --log_dir pointnet --gpu 4 --l0 20000 --sampler samplenet --sess arm20000 --ar --lr 0.005 --epoch 400 -b 128
+python train_samplenetarm.py --model pointnet_cls --log_dir pointnet --gpu 4 --l0 20000 --beta 0.01 --sampler samplenet --sess arm20000 --ar --lr 0.001 --epoch 400 -b 128
 ```
 
 
