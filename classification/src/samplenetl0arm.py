@@ -88,19 +88,19 @@ class SampleNet(nn.Module):
         self.conv3 = torch.nn.Conv1d(64, 64, 1)
         self.conv4 = torch.nn.Conv1d(64, 128, 1)
         self.conv5 = torch.nn.Conv1d(128, bottleneck_size, 1)
-        self.conv6 = torch.nn.Conv1d(bottleneck_size, 1, 1)
+        #self.conv6 = torch.nn.Conv1d(bottleneck_size, 1, 1)
 
         self.bn1 = nn.BatchNorm1d(64)
         self.bn2 = nn.BatchNorm1d(64)
         self.bn3 = nn.BatchNorm1d(64)
         self.bn4 = nn.BatchNorm1d(128)
         self.bn5 = nn.BatchNorm1d(bottleneck_size)
-        self.bn6 = nn.BatchNorm1d(1)
+        #self.bn6 = nn.BatchNorm1d(1)
 
         self.fc1 = nn.Linear(bottleneck_size, 256)
-        self.fc2 = nn.Linear(256, 256,bias=False)
-        self.fc3 = nn.Linear(256, 256,bias=False)
-        self.fc4 = nn.Linear(256, 1024,bias=False)
+        self.fc2 = nn.Linear(256, 256, bias=False)
+        self.fc3 = nn.Linear(256, 256, bias=False)
+        self.fc4 = nn.Linear(256, 1024, bias=False)
         # self.fc1 = torch.nn.Conv1d(bottleneck_size*2, 256, 1)
         # self.fc2 = torch.nn.Conv1d(256, 256, 1)
         # self.fc3 = torch.nn.Conv1d(256, 256, 1)
@@ -121,15 +121,12 @@ class SampleNet(nn.Module):
 
         # input / output shapes
         if input_shape not in ["bcn", "bnc"]:
-            raise ValueError(
-                "allowed shape are 'bcn' (batch * channels * num_in_points), 'bnc' "
-            )
+            raise ValueError("allowed shape are 'bcn' (batch * channels * num_in_points), 'bnc' ")
         if output_shape not in ["bcn", "bnc"]:
-            raise ValueError(
-                "allowed shape are 'bcn' (batch * channels * num_in_points), 'bnc' "
-            )
+            raise ValueError("allowed shape are 'bcn' (batch * channels * num_in_points), 'bnc' ")
         if input_shape != output_shape:
             warnings.warn("SampleNet: input_shape is different to output_shape.")
+
         self.input_shape = input_shape
         self.output_shape = output_shape
         self.loss = torch.tensor(0)
@@ -157,7 +154,7 @@ class SampleNet(nn.Module):
         else:
             pi = torch.sigmoid(self.k1 * loga)#.detach()
 
-        self.m = pi.view(-1).clone().detach_()
+        #self.m = pi.view(-1).clone().detach_()
         if self.forward_mode:
             z = torch.zeros_like(loga)
             if self.training:
@@ -227,7 +224,7 @@ class SampleNet(nn.Module):
         y = F.relu(self.fc1(y))
         y = F.relu(self.fc2(y))
         y = F.relu(self.fc3(y))
-        loga = (self.fc4(y)+ self.bias_l0).reshape((x.shape[0],x.shape[2]))
+        loga = self.fc4(y)+ self.bias_l0 #.reshape((x.shape[0],x.shape[2]))
 
 
         self.loga = loga
@@ -301,6 +298,7 @@ class SampleNet(nn.Module):
         cost_p2_p1 = torch.mean(cost_p2_p1)
         loss = cost_p2_p1
         return loss
+
     def get_simplification_loss1(self, ref_pc, samp_pc, pc_size, gamma=1, delta=0):
         if not self.training:
             return torch.tensor(0).to(ref_pc)
