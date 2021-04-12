@@ -304,7 +304,7 @@ def main(args):
             points[:,:, 0:3] = provider.shift_point_cloud(points[:,:, 0:3])
             points = torch.Tensor(points)
             target = target[:, 0]
-            writer.add_scalar('loss/K', sampler.k1, epoch * len(trainDataLoader) * epoch + batch_id)
+            writer.add_scalar('loss/K', sampler.k1, epoch * len(trainDataLoader) + batch_id)
 
             points, target = points.cuda(), target.cuda()
             sampler.loss = 0
