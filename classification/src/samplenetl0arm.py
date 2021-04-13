@@ -126,7 +126,7 @@ class SampleNet(nn.Module):
         self.local_rep = True
         self.forward_mode = True
         self.ar = True
-        self.fc4.bias.data.fill_(0. / self.k1)
+        self.fc4.bias.data.fill_(-3.43 / self.k1)
 
     def sample_z(self,loga):
 
@@ -138,6 +138,7 @@ class SampleNet(nn.Module):
         if self.forward_mode:
             z = torch.zeros_like(loga)
             self.u = torch.zeros(loga.shape[1]).to(loga.device).uniform_(0, 1).expand(loga.shape[0], loga.shape[1])  # torch.zeros_like(loga).uniform_(0, 1)
+            #self.u = torch.zeros_like(loga).to(loga.device).uniform_(0, 1)
             z[self.u < pi] = 1
 
             #if self.training:

@@ -12,8 +12,6 @@ import time
 import provider
 from time import localtime
 from torch.utils.tensorboard import SummaryWriter
-from src.pctransforms import OnUnitCube, PointcloudToTensor
-from src.samplenetl0arm import SampleNet
 from data.modelnet_loader_torch import ModelNetCls
 
 import torchvision
@@ -400,4 +398,6 @@ def main(args):
 if __name__ == '__main__':
     args = parse_args()
     os.environ["CUDA_VISIBLE_DEVICES"] = args.gpu
+    from src.pctransforms import OnUnitCube, PointcloudToTensor
+    from src.samplenetl0arm import SampleNet
     main(args)
