@@ -40,6 +40,8 @@ def parse_args():
     parser.add_argument('--train_cls', action='store_true', default=False, help='Allow calssifier training.')
     parser.add_argument('--num_out_points', type=int, default=32, help='sampled Point Number [default: 32]')
     parser.add_argument('--bottleneck_size', type=int, default=128, help='bottleneck_size')
+    parser.add_argument('--k', default=1.0, type=float, help='k for sigmoid function')
+    parser.add_argument('--bias', default=0.0, type=float, help='bias term to activate % points')
     parser.add_argument('--beta', default=1.0, type=float, help='beta for coverage loss')
     parser.add_argument('--l0', default=1.0, type=float, help='lambda for l0')
     parser.add_argument('--datafolder',  type=str, help='dataset folder')
@@ -204,6 +206,8 @@ def main(args):
         # Create sampling network
     if args.sampler == "samplenet":
         sampler = SampleNet(
+            k=args.k,
+            bias=args.bias,
             bottleneck_size=args.bottleneck_size,
             input_shape="bnc",
             output_shape="bnc"
