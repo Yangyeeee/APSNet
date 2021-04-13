@@ -90,7 +90,9 @@ def square_distance(src, dst):
 
 class SampleNet(nn.Module):
     def __init__(
-        self,k,bias,
+        self,
+        k,
+        bias,
         bottleneck_size,
         input_shape="bcn",
         output_shape="bcn"
@@ -149,7 +151,7 @@ class SampleNet(nn.Module):
         self.local_rep = True
         self.forward_mode = True
         self.ar = True
-        self.fc4.bias.data.fill_((-3.43+bias) / self.k1)
+        self.fc4.bias.data.fill_(bias / self.k1)
 
     def sample_z(self,loga):
 
