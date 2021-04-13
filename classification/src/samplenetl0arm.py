@@ -64,10 +64,33 @@ def batched_index_select(input, dim, index):
     index = index.expand(expanse)
     return torch.gather(input, dim, index)
 
+def square_distance(src, dst):
+    """
+    Calculate Euclid distance between each two points.
+
+    src^T * dst = xn * xm + yn * ym + zn * zm;
+    sum(src^2, dim=-1) = xn*xn + yn*yn + zn*zn;
+    sum(dst^2, dim=-1) = xm*xm + ym*ym + zm*zm;
+    dist = (xn - xm)^2 + (yn - ym)^2 + (zn - zm)^2
+         = sum(src**2,dim=-1)+sum(dst**2,dim=-1)-2*src^T*dst
+
+    Input:
+        src: source points, [B, N, C]
+        dst: target points, [B, M, C]
+    Output:
+        dist: per-point square distance, [B, N, M]
+    """
+    B, N, _ = src.shape
+    _, M, _ = dst.shape
+    dist = -2 * torch.matmul(src, dst.permute(0, 2, 1))
+    dist += torch.sum(src ** 2, -1).view(B, N, 1)
+    dist += torch.sum(dst ** 2, -1).view(B, 1, M)
+    return dist
+
 
 class SampleNet(nn.Module):
     def __init__(
-        self,
+        self,k,bias,
         bottleneck_size,
         input_shape="bcn",
         output_shape="bcn"
@@ -121,12 +144,12 @@ class SampleNet(nn.Module):
         #self.k = 1024
         self.ind = 0
         self.hardsigmoid = False
-        self.k1 = 1
+        self.k1 = k
         self.u = None
         self.local_rep = True
         self.forward_mode = True
         self.ar = True
-        self.fc4.bias.data.fill_(-3.43 / self.k1)
+        self.fc4.bias.data.fill_((-3.43+bias) / self.k1)
 
     def sample_z(self,loga):
 
@@ -248,7 +271,8 @@ class SampleNet(nn.Module):
         if not self.training:
             return torch.tensor(0).to(ref_pc)
         # ref_pc and samp_pc are B x N x 3 matricesself.skip_projection or
-        cost_p1_p2, cost_p2_p1 = ChamferDistance()(samp_pc, ref_pc)
+        # cost_p1_p2, cost_p2_p11 = ChamferDistance()(samp_pc, ref_pc)
+        cost_p2_p1 = square_distance(ref_pc,samp_pc).min(-1)[0]
         #max_cost = torch.max(cost_p1_p2, dim=1)[0]
         #max_cost = torch.mean(max_cost)
         #cost_p1_p2 = torch.mean(cost_p1_p2)
