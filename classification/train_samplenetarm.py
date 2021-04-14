@@ -96,9 +96,13 @@ def get_datasets(args):
 
     return trainset, testset
 
-def test(model,sampler, loader,criterion, num_class=40):
-    mean_correct = []
-    class_acc = np.zeros((num_class,3))
+def test(model, sampler, loader, criterion, num_class=40):
+    total_correct = 0.0
+    total_samples = 0.0
+    total_points = 0.0
+    loss_task = []
+    class_acc = np.zeros((num_class, 3))
+
     for j, data in tqdm(enumerate(loader), total=len(loader)):
         points, target = data
         target = target[:, 0]
@@ -113,17 +117,22 @@ def test(model,sampler, loader,criterion, num_class=40):
         classifier = model.eval()
         pred, trans_feat = classifier(simplified)
         loss = criterion(pred, target.long(), trans_feat)
+        loss_task.append(loss.item())
         pred_choice = pred.data.max(1)[1]
         for cat in np.unique(target.cpu()):
             classacc = pred_choice[target==cat].eq(target[target==cat].long().data).cpu().sum()
             class_acc[cat,0]+= classacc.item()/float(points[target==cat].size()[0])
             class_acc[cat,1]+=1
         correct = pred_choice.eq(target.long().data).cpu().sum()
-        mean_correct.append(correct.item()/float(points.size()[0]))
-    class_acc[:,2] =  class_acc[:,0]/ class_acc[:,1]
+        total_correct += correct.item()
+        total_samples += sampler.num.item() * points.size()[0]
+        total_points += points.size()[0]
+    class_acc[:,2] =  class_acc[:,0] / class_acc[:,1]
     class_acc = np.mean(class_acc[:,2])
-    instance_acc = np.mean(mean_correct)
-    return instance_acc, class_acc, loss
+    instance_acc = total_correct / total_points
+    mean_loss_task = np.mean(loss_task)
+    mean_samples = total_samples / total_points
+    return instance_acc, class_acc, mean_loss_task, mean_samples
 
 
 
@@ -249,7 +258,7 @@ def main(args):
     global_step = 0
     best_instance_acc = 0.0
     best_class_acc = 0.0
-    mean_correct = []
+    total_correct = 0.0
     loss_task = []
     loss_l0 = []
     loss_coverage = []
@@ -269,9 +278,9 @@ def main(args):
     for epoch in range(start_epoch,args.epoch):
         log_string('Epoch %d (%d/%s):' % (global_epoch + 1, epoch + 1, args.epoch))
         sampler = sampler.train()
-        a = []
+        total_samples = 0.0
 
-        for batch_id, data in tqdm(enumerate(trainDataLoader, 0), total=len(trainDataLoader), smoothing=0.9):
+        for batch_id, data in tqdm(enumerate(trainDataLoader, 0), total=len(trainDataLoader)): #, smoothing=0.9):
         #for i in range(0):
             points, target = data
             points = points.data.numpy()
@@ -283,15 +292,14 @@ def main(args):
             writer.add_scalar('loss/K', sampler.k1, epoch * len(trainDataLoader) + batch_id)
 
             points, target = points.cuda(), target.cuda()
-            #sampler.loss = 0
+
             if sampler.training:
                 sampler.forward_mode = True
                 optimizer.zero_grad()
 
                 coverage_loss, sampled_data = compute_samplenet_loss(sampler, points, epoch)
-                a.append(sampler.num.item())
-                # classifier = classifier.train()
-                # points = torch.cat((sampled_data[1],points[:,:,3:]),dim=-1)
+                total_samples += sampler.num.item() * points.size()[0]
+
                 sampled_points = sampled_data.transpose(2, 1)
                 pred, trans_feat = classifier(sampled_points)
                 loss_t = criterion(pred, target.long(), trans_feat)
@@ -331,7 +339,7 @@ def main(args):
 
                 pred_choice = pred.data.max(1)[1]
                 correct = pred_choice.eq(target.long().data).cpu().sum()
-                mean_correct.append(correct.item() / float(points.size()[0]))
+                total_correct += correct.item()
 
                 if sampler.training:
                     # model.sampler.loga.register_hook(model.sampler.update_phi_gradient)
@@ -351,19 +359,20 @@ def main(args):
                 #    sampler.k1 = k1
 
         scheduler.step()
-        train_instance_acc = np.mean(mean_correct)
-        log_string('Train Instance Accuracy: %f' % train_instance_acc)
+        train_instance_acc = total_correct / len(trainset)
+        mean_samples = total_samples / len(trainset)
+        log_string('Train Instance Accuracy: %f, Mean samples: %f' % (train_instance_acc, mean_samples))
         writer.add_scalar('acc/train', train_instance_acc, epoch)
         writer.add_scalar('loss/loss_task', np.mean(loss_task), epoch)
         writer.add_scalar('loss/loss_l0', np.mean(loss_l0), epoch)
         writer.add_scalar('loss/loss_coverage', np.mean(loss_coverage), epoch)
         writer.add_scalar('loss/train_loss', np.mean(loss_task) + np.mean(loss_coverage) + np.mean(loss_l0), epoch)
-        writer.add_scalar('number/train', np.array(a).mean(), epoch)
+        writer.add_scalar('number/train', mean_samples, epoch)
 
         #t_tmp= torch.tensor(np.array(a).mean()).int()
         #sampler.k = t_tmp
         with torch.no_grad():
-            instance_acc, class_acc, loss = test(classifier.eval(), sampler, testDataLoader, criterion)
+            instance_acc, class_acc, mean_loss_task, mean_samples = test(classifier.eval(), sampler, testDataLoader, criterion)
             #sampler.k = 32
             #instance_acc32, class_acc32, _ = test(classifier.eval(), sampler, testDataLoader, criterion)
             #sampler.k = t_tmp
@@ -373,14 +382,14 @@ def main(args):
 
             if (class_acc >= best_class_acc):
                 best_class_acc = class_acc
-            log_string('Test Instance Accuracy: %f, Class Accuracy: %f'% (instance_acc, class_acc))
+            log_string('Test Instance Accuracy: %f, Class Accuracy: %f, Mean samples: %f'% (instance_acc, class_acc, mean_samples))
             log_string('Best Instance Accuracy: %f, Class Accuracy: %f'% (best_instance_acc, best_class_acc))
             writer.add_scalar('acc/test_i', instance_acc, epoch)
             writer.add_scalar('acc/test_c', class_acc, epoch)
             #writer.add_scalar('acc/test_i_32', instance_acc32, epoch)
             #writer.add_scalar('acc/test_c_32', class_acc32, epoch)
-            writer.add_scalar('loss/test', loss, epoch)
-            writer.add_scalar('number/test', sampler.num.item(), epoch)
+            writer.add_scalar('loss/test_task', mean_loss_task, epoch)
+            writer.add_scalar('number/test', mean_samples, epoch)
 
             if (instance_acc >= best_instance_acc):
                 logger.info('Save model...')
