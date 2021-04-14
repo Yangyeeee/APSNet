@@ -108,10 +108,10 @@ def test(model,sampler, loader,criterion, num_class=40):
         # y = batched_index_select(points[:, :, 3:], 1, ind)
         # points = torch.cat((p0_projected, y), dim=-1)
 
-        points = simplified.transpose(2, 1)
+        simplified = simplified.transpose(2, 1)
 
         classifier = model.eval()
-        pred, trans_feat = classifier(points)
+        pred, trans_feat = classifier(simplified)
         loss = criterion(pred, target.long(), trans_feat)
         pred_choice = pred.data.max(1)[1]
         for cat in np.unique(target.cpu()):
@@ -123,7 +123,7 @@ def test(model,sampler, loader,criterion, num_class=40):
     class_acc[:,2] =  class_acc[:,0]/ class_acc[:,1]
     class_acc = np.mean(class_acc[:,2])
     instance_acc = np.mean(mean_correct)
-    return instance_acc, class_acc,loss
+    return instance_acc, class_acc, loss
 
 
 
@@ -292,8 +292,8 @@ def main(args):
                 a.append(sampler.num.item())
                 # classifier = classifier.train()
                 # points = torch.cat((sampled_data[1],points[:,:,3:]),dim=-1)
-                points = sampled_data.transpose(2, 1)
-                pred, trans_feat = classifier(points)
+                sampled_points = sampled_data.transpose(2, 1)
+                pred, trans_feat = classifier(sampled_points)
                 loss_t = criterion(pred, target.long(), trans_feat)
                 loss_l = sampler.l0_loss * args.l0
                 loss_c = coverage_loss * args.beta

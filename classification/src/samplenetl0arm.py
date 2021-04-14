@@ -204,11 +204,11 @@ class SampleNet(nn.Module):
     def update_phi_gradient(self):
         # only deal with first part of gradient
         # regularization part will be handled by pytorch
-        k = self.k1
+        # k = self.k1
         if self.ar:
-            e = k * (self.f2 * (1 - 2 * self.u))
+            e = self.k1 * (self.f2 * (1 - 2 * self.u))
         else:
-            e = k * ((self.f1 - self.f2) * (self.u - .5))
+            e = self.k1 * ((self.f1 - self.f2) * (self.u - .5))
         return e
 
     def forward(self, x: torch.Tensor,epoch):
@@ -270,10 +270,10 @@ class SampleNet(nn.Module):
     # When evaluating the model, we'd only want to asses the task loss.
 
     def get_simplification_loss(self, ref_pc, samp_pc):
-        if not self.training:
-            return torch.tensor(0).to(ref_pc)
+        #if not self.training:
+        #    return torch.tensor(0).to(ref_pc)
         # ref_pc and samp_pc are B x N x 3 matricesself.skip_projection or
-        # cost_p1_p2, cost_p2_p11 = ChamferDistance()(samp_pc, ref_pc)
+        #cost_p1_p2, cost_p2_p11 = ChamferDistance()(samp_pc, ref_pc)
         cost_p2_p1 = square_distance(ref_pc,samp_pc).min(-1)[0]
         #max_cost = torch.max(cost_p1_p2, dim=1)[0]
         #max_cost = torch.mean(max_cost)
