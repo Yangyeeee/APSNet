@@ -258,7 +258,6 @@ def main(args):
     global_step = 0
     best_instance_acc = 0.0
     best_class_acc = 0.0
-    total_correct = 0.0
     loss_task = []
     loss_l0 = []
     loss_coverage = []
@@ -279,6 +278,7 @@ def main(args):
         log_string('Epoch %d (%d/%s):' % (global_epoch + 1, epoch + 1, args.epoch))
         sampler = sampler.train()
         total_samples = 0.0
+        total_correct = 0.0
 
         for batch_id, data in tqdm(enumerate(trainDataLoader, 0), total=len(trainDataLoader)): #, smoothing=0.9):
         #for i in range(0):
