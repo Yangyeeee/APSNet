@@ -6,19 +6,19 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from knn_cuda import KNN
+#from knn_cuda import KNN
 
 
-try:
-    from .soft_projection import SoftProjection
-    from .chamfer_distance import ChamferDistance
-    from . import sputils
+#try:
+    #from .soft_projection import SoftProjection
+    #from .chamfer_distance import ChamferDistance
+    #from . import sputils
     # from . import soft
-except (ModuleNotFoundError, ImportError) as err:
-    print(err.__repr__())
-    from soft_projection import SoftProjection
-    from chamfer_distance import ChamferDistance
-    import sputils
+#except (ModuleNotFoundError, ImportError) as err:
+    #print(err.__repr__())
+    #from soft_projection import SoftProjection
+    #from chamfer_distance import ChamferDistance
+    #import sputils
     # import soft
 
 
