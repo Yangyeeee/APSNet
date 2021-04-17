@@ -88,6 +88,35 @@ def square_distance(src, dst):
     return dist
 
 
+def _calc_distances(p0, points):
+    return torch.pow((p0 - points), 2).sum(-1)
+
+
+def fps_from_given_pc(pts, k, given_pc):
+    farthest_pts = torch.zeros((k, 3)).to(given_pc.device)
+    t = given_pc.shape[0]
+    farthest_pts[0:t] = given_pc
+
+    distances = square_distance(given_pc.unsqueeze(0), pts.unsqueeze(0)).min(1)[0].squeeze()
+    for i in range(t, k):
+        farthest_pts[i] = pts[torch.max(distances, dim=-1)[1]]
+        dis = _calc_distances(farthest_pts[i], pts)
+        distances = torch.where(distances < dis, distances, dis)
+    return farthest_pts
+
+
+def selecting(full_pc, m):
+    num = (m > 0).sum(-1).max().item()
+    batch_size = full_pc.shape[0]
+    out_pc = torch.zeros((batch_size, num, 3)).to(m.device)
+
+    for i in range(0, batch_size):
+        cur_idx = torch.nonzero(m[i] != 0).squeeze()
+        out_pc[i] = fps_from_given_pc(full_pc[i], num, full_pc[i][cur_idx])
+
+    return out_pc[:, 0:num, :]
+
+
 class SampleNet(nn.Module):
     def __init__(
         self,
@@ -243,18 +272,23 @@ class SampleNet(nn.Module):
             self.l0_grad, self.l0_loss = self.get_grad_loss(loga)
 
         m = self.sample_z(loga)
-        self.num = (m > 0).sum(-1).float().mean()
+        self.num = (m > 0).sum(-1).float().max()
         y = x * m.unsqueeze(1)
 
         #ind = torch.topk(loga, self.k, dim=-1)[1]
         #self.ind  = ind
         # Simplified points
-        #simp = batched_index_select(y, 2, ind)
-        simp = y
 
-        # Change to output shapes
-        if self.output_shape == "bnc":
-            simp = simp.permute(0, 2, 1)
+        simp = selecting(x.permute(0, 2, 1), m)
+
+
+        #simp = batched_index_select(y, 2, ind)
+
+        # simp = y
+        #
+        # # Change to output shapes
+        # if self.output_shape == "bnc":
+        #     simp = simp.permute(0, 2, 1)
 
         # Assert contiguous tensors
         simp = simp.contiguous()
