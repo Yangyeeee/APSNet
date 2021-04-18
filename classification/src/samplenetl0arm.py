@@ -111,10 +111,10 @@ def selecting(full_pc, m):
     out_pc = torch.zeros((batch_size, num, 3)).to(m.device)
 
     for i in range(0, batch_size):
-        cur_idx = torch.nonzero(m[i] != 0).squeeze()
+        cur_idx = torch.nonzero(m[i] != 0, as_tuple=False).squeeze()
         out_pc[i] = fps_from_given_pc(full_pc[i], num, full_pc[i][cur_idx])
 
-    return out_pc[:, 0:num, :]
+    return out_pc
 
 
 class SampleNet(nn.Module):
