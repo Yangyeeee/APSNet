@@ -102,7 +102,7 @@ def test(model, sampler, loader, criterion, num_class=40):
     total_points = 0.0
     loss_task = []
     class_acc = np.zeros((num_class, 3))
-
+    sampler.forward_mode = True
     for j, data in tqdm(enumerate(loader), total=len(loader)):
         points, target = data
         target = target[:, 0]
@@ -311,8 +311,7 @@ def main(args):
                 if args.ar is not True:
                     sampler.forward_mode = False
                     if sampler is not None: # and model.sampler.name == "samplenet":
-                        points = points.transpose(2, 1)
-                        sampler_loss1, sampled_data1 = compute_samplenet_loss(sampler, points, epoch)
+                        coverage_loss1, sampled_data1 = compute_samplenet_loss(sampler, points, epoch)
 
 
                     # elif model.sampler is not None and model.sampler.name == "fps":
@@ -326,13 +325,14 @@ def main(args):
                     #     projection_loss = torch.tensor(0, dtype=torch.float32)
                     #     sampler_loss = torch.tensor(0, dtype=torch.float32)
 
-                    points = sampled_data1.transpose(2, 1)
-                    pred, trans_feat = classifier(points)
-                    loss1 = criterion(pred, target.long(), trans_feat)
+                    sampled_points1 = sampled_data1.transpose(2, 1)
+                    pred1, trans_feat1 = classifier(sampled_points1)
+                    loss_t1 = criterion(pred1, target.long(), trans_feat1)
                 else:
-                    loss1 = 0
-                    sampler_loss1 = 0
-                sampler.f1 = loss1 + sampler_loss1
+                    loss_t1 = 0
+                    coverage_loss1 = 0
+                loss_c1 = coverage_loss1 * args.beta
+                sampler.f1 = loss_t1 + loss_c1
                 sampler.f2 = loss_t + loss_c
 
                 sampler.train()
