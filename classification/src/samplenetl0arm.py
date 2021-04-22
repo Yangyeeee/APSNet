@@ -157,7 +157,7 @@ class SampleNet(nn.Module):
         self.l0_loss = torch.tensor(0)
         self.l0_grad = torch.tensor(0)
         self.num = torch.tensor(0)
-        self.m = None
+        #self.m = None
         self.phi = None
         self.pi = None
         self.u = None
@@ -170,27 +170,31 @@ class SampleNet(nn.Module):
         self.forward_mode = True
         self.ar = ar
         self.fc4.bias.data.fill_(bias / self.k)
+        self.z1 = None
+        self.z2 = None
 
     def sample_z(self, pi):
 
         if self.forward_mode:
             z = torch.zeros_like(pi)
-            self.u = torch.zeros(pi.shape[1]).to(pi.device).uniform_(0, 1).expand(pi.shape[0], pi.shape[1])  # torch.zeros_like(loga).uniform_(0, 1)
-            # self.u = torch.zeros_like(loga).to(loga.device).uniform_(0, 1)
+            self.u = torch.zeros(pi.shape[1]).to(pi.device).uniform_(0, 1).expand(pi.shape[0], pi.shape[1])
+            #self.u = torch.zeros_like(pi).to(pi.device).uniform_(0, 1)
             z[self.u < pi] = 1
+            self.z2 = z
 
             #if self.training:
-            #    self.u = torch.zeros(loga.shape[1]).to(loga.device).uniform_(0, 1).expand(loga.shape[0], loga.shape[1]) #torch.zeros_like(loga).uniform_(0, 1)
-            #    #self.u = torch.zeros_like(loga).to(loga.device).uniform_(0, 1)
+            #    self.u = torch.zeros(pi.shape[1]).to(pi.device).uniform_(0, 1).expand(pi.shape[0], pi.shape[1])
+            #    # self.u = torch.zeros_like(loga).to(loga.device).uniform_(0, 1)
             #    z[self.u < pi] = 1
             #else:
-            #    z[loga > 0] = 1
+            #    z[pi > 0.5] = 1
         else:
             pi2 = 1 - pi
             if self.u is None:
                 raise Exception('Forward pass first')
             z = torch.zeros_like(pi)
             z[self.u > pi2] = 1
+            self.z1 = z
 
         return z
 
@@ -210,7 +214,9 @@ class SampleNet(nn.Module):
         if self.ar:
             e = self.k * (self.f2 * (1 - 2 * self.u))
         else:
-            e = self.k * ((self.f1 - self.f2) * (self.u - .5))
+            #e = self.k * (self.f1 - self.f2) * (self.u - .5)
+            #e = self.k * (self.f1 - self.f2) * (self.u - .5) * (self.z1 - self.z2).abs()
+            e = self.k * (self.f1 - self.f2) * torch.sigmoid(self.k * self.phi.abs()) * (self.z1 - self.z2)
         return e
 
     def calculate_pi(self, x: torch.Tensor):

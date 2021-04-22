@@ -28,7 +28,7 @@ def parse_args():
     parser.add_argument('--epoch',  default=200, type=int, help='number of epoch in training [default: 200]')
     parser.add_argument('--lr', default=0.01, type=float, help='learning rate in training [default: 0.01]')
     parser.add_argument('--gpu', type=str, default='0', help='specify gpu device [default: 0]')
-    parser.add_argument('--optimizer', type=str, default='Adam', help='optimizer for training [default: Adam]')
+    parser.add_argument('--optimizer', type=str, default='adam', help='optimizer for training [sgd or adam default: adam]')
     parser.add_argument('--log_dir', type=str, default=None, help='experiment root')
     parser.add_argument('--sess', type=str, default="default", help='session')
     parser.add_argument('--weight_decay', type=float, default=1e-4, help='decay rate [default: 1e-4]')
@@ -242,7 +242,7 @@ def main(args):
     else:
         sampler = None
 
-    if args.optimizer == 'Adam':
+    if args.optimizer == 'adam':
         optimizer = torch.optim.Adam(
             sampler.parameters(),
             lr=args.lr,
@@ -251,7 +251,7 @@ def main(args):
             weight_decay=args.weight_decay
         )
     else:
-        optimizer = torch.optim.SGD(sampler.parameters(), lr=0.01, momentum=0.9)
+        optimizer = torch.optim.SGD(sampler.parameters(), lr=args.lr, momentum=0.9)
 
     scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=20, gamma=args.decay_rate)
     global_epoch = 0
@@ -283,9 +283,9 @@ def main(args):
         for batch_id, data in tqdm(enumerate(trainDataLoader, 0), total=len(trainDataLoader)): #, smoothing=0.9):
             points, target = data
             points = points.data.numpy()
-            points = provider.random_point_dropout(points)
-            points[:,:, 0:3] = provider.random_scale_point_cloud(points[:,:, 0:3])
-            points[:,:, 0:3] = provider.shift_point_cloud(points[:,:, 0:3])
+            points = provider.random_point_dropout(points, 0.01)
+            points[:,:, 0:3] = provider.random_scale_point_cloud(points[:,:, 0:3], 0.9, 1.1)
+            points[:,:, 0:3] = provider.shift_point_cloud(points[:,:, 0:3], 0.01)
             points = points.transpose(0,2,1)
             points = torch.Tensor(points)
             target = target[:, 0]
