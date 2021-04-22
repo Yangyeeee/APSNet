@@ -123,9 +123,7 @@ class SampleNet(nn.Module):
         k,
         bias,
         ar,
-        bottleneck_size,
-        input_shape="bcn",
-        output_shape="bcn"
+        bottleneck_size
     ):
         super().__init__()
         self.name = "samplenet"
@@ -156,33 +154,22 @@ class SampleNet(nn.Module):
         self.bn_fc2 = nn.BatchNorm1d(256)
         self.bn_fc3 = nn.BatchNorm1d(256)
 
-        # input / output shapes
-        if input_shape not in ["bcn", "bnc"]:
-            raise ValueError("allowed shape are 'bcn' (batch * channels * num_in_points), 'bnc' ")
-        if output_shape not in ["bcn", "bnc"]:
-            raise ValueError("allowed shape are 'bcn' (batch * channels * num_in_points), 'bnc' ")
-        if input_shape != output_shape:
-            warnings.warn("SampleNet: input_shape is different to output_shape.")
-
-        self.input_shape = input_shape
-        self.output_shape = output_shape
         self.l0_loss = torch.tensor(0)
         self.l0_grad = torch.tensor(0)
         self.num = torch.tensor(0)
         self.m = None
-        self.phi = torch.tensor(0)
-        self.pi = torch.tensor(0)
+        self.phi = None
+        self.pi = None
+        self.u = None
         self.f1 = torch.tensor(0)
         self.f2 = torch.tensor(0)
-        #self.k = 1024
         self.ind = 0
         self.hardsigmoid = False
-        self.k1 = k
-        self.u = None
+        self.k = k
         self.local_rep = True
         self.forward_mode = True
         self.ar = ar
-        self.fc4.bias.data.fill_(bias / self.k1)
+        self.fc4.bias.data.fill_(bias / self.k)
 
     def sample_z(self, pi):
 
@@ -213,7 +200,7 @@ class SampleNet(nn.Module):
 
     def get_grad_loss(self, pi):
         l0 = pi.mean()
-        grad = pi*(1-pi)*self.k1/pi.numel() #shape[0]
+        grad = pi*(1-pi)*self.k/pi.numel() #shape[0]
         return grad, l0
 
     def update_phi_gradient(self):
@@ -221,9 +208,9 @@ class SampleNet(nn.Module):
         # regularization part will be handled by pytorch
         # k = self.k1
         if self.ar:
-            e = self.k1 * (self.f2 * (1 - 2 * self.u))
+            e = self.k * (self.f2 * (1 - 2 * self.u))
         else:
-            e = self.k1 * ((self.f1 - self.f2) * (self.u - .5))
+            e = self.k * ((self.f1 - self.f2) * (self.u - .5))
         return e
 
     def calculate_pi(self, x: torch.Tensor):
@@ -239,31 +226,18 @@ class SampleNet(nn.Module):
         y = F.relu(self.bn_fc1(self.fc1(y)))
         y = F.relu(self.bn_fc2(self.fc2(y)))
         y = F.relu(self.bn_fc3(self.fc3(y)))
-        phi = self.fc4(y) #+ self.bias_l0).squeeze()
+        phi = self.fc4(y)
 
         if self.hardsigmoid:
-            pi = F.hardtanh(self.k1 * phi / 7. + .5, 0, 1) #.detach()
+            pi = F.hardtanh(self.k * phi / 7. + .5, 0, 1) #.detach()
         else:
-            pi = torch.sigmoid(self.k1 * phi) #.detach()
+            pi = torch.sigmoid(self.k * phi) #.detach()
 
-        #y = F.relu(self.fc1(y))
-        #y = F.relu(self.fc2(y))
-        #y = F.relu(self.fc3(y))
-        #loga = self.fc4(y) #+ self.bias_l0 #.reshape((x.shape[0],x.shape[2]))
-
-        self.phi = phi
-        self.pi = pi
+        return pi, phi
 
     def forward(self, x: torch.Tensor):
 
-        # x shape should be B x 3 x N
-        #if self.input_shape == "bnc":
-        #    x = x.permute(0, 2, 1)
-
-        #if x.shape[1] != 3:
-        #    raise RuntimeError("shape of x must be of [Batch x 3 x NumInPoints]")
-
-        self.calculate_pi(x)
+        self.pi, self.phi = self.calculate_pi(x)
 
         if self.training:
             self.l0_grad, self.l0_loss = self.get_grad_loss(self.pi)
@@ -272,20 +246,11 @@ class SampleNet(nn.Module):
         self.num = (m > 0).sum(-1).float().mean()
         y = x * m.unsqueeze(1)
 
-        #ind = torch.topk(loga, self.k, dim=-1)[1]
-        #self.ind  = ind
-        # Simplified points
-
         #simp = selecting(x.permute(0, 2, 1), m)
-
 
         #simp = batched_index_select(y, 2, ind)
 
         simp = y
-        #
-        # Change to output shapes
-        #if self.output_shape == "bnc":
-        #     simp = simp.permute(0, 2, 1)
 
         # Assert contiguous tensors
         #simp = simp.contiguous()

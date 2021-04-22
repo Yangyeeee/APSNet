@@ -219,9 +219,7 @@ def main(args):
             k=args.k,
             bias=args.bias,
             ar=args.ar,
-            bottleneck_size=args.bottleneck_size,
-            input_shape="bnc",
-            output_shape="bnc"
+            bottleneck_size=args.bottleneck_size
         ).cuda()
 
         if args.train_samplenet:
@@ -283,7 +281,6 @@ def main(args):
         total_correct = 0.0
 
         for batch_id, data in tqdm(enumerate(trainDataLoader, 0), total=len(trainDataLoader)): #, smoothing=0.9):
-        #for i in range(0):
             points, target = data
             points = points.data.numpy()
             points = provider.random_point_dropout(points)
@@ -292,7 +289,7 @@ def main(args):
             points = points.transpose(0,2,1)
             points = torch.Tensor(points)
             target = target[:, 0]
-            writer.add_scalar('loss/K', sampler.k1, epoch * len(trainDataLoader) + batch_id)
+            writer.add_scalar('loss/K', sampler.k, epoch * len(trainDataLoader) + batch_id)
 
             points, target = points.cuda(), target.cuda()
 
@@ -302,7 +299,6 @@ def main(args):
                 coverage_loss, sampled_data = compute_samplenet_loss(sampler, points)
                 total_samples += sampler.num.item() * points.size()[0]
 
-                #sampled_points = sampled_data.transpose(2, 1)
                 pred, trans_feat = classifier(sampled_data)
                 loss_t = criterion(pred, target.long(), trans_feat)
                 loss_l = sampler.l0_loss * args.l0
@@ -371,8 +367,6 @@ def main(args):
         writer.add_scalar('loss/train_loss', np.mean(loss_task) + np.mean(loss_coverage) + np.mean(loss_l0), epoch)
         writer.add_scalar('number/train', mean_samples, epoch)
 
-        #t_tmp= torch.tensor(np.array(a).mean()).int()
-        #sampler.k = t_tmp
         with torch.no_grad():
             instance_acc, class_acc, mean_loss_task, mean_samples = test(classifier.eval(), sampler, testDataLoader, criterion)
             #sampler.k = 32
