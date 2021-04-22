@@ -216,7 +216,7 @@ class SampleNet(nn.Module):
         else:
             #e = self.k * (self.f1 - self.f2) * (self.u - .5)
             #e = self.k * (self.f1 - self.f2) * (self.u - .5) * (self.z1 - self.z2).abs()
-            e = self.k * (self.f1 - self.f2) * torch.sigmoid(self.k * self.phi.abs()) * (self.z1 - self.z2)
+            e = 0.5 * self.k * (self.f1 - self.f2) * torch.sigmoid(self.k * self.phi.abs()) * (self.z1 - self.z2)
         return e
 
     def calculate_pi(self, x: torch.Tensor):
