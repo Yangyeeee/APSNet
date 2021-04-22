@@ -309,7 +309,7 @@ def main(args):
                 if sampler.ar is not True:
                     sampler.forward_mode = False
                     if sampler is not None: # and model.sampler.name == "samplenet":
-                        coverage_loss1, sampled_data1 = compute_samplenet_loss(sampler, points, epoch)
+                        coverage_loss1, sampled_data1 = compute_samplenet_loss(sampler, points)
 
 
                     # elif model.sampler is not None and model.sampler.name == "fps":
@@ -323,8 +323,7 @@ def main(args):
                     #     projection_loss = torch.tensor(0, dtype=torch.float32)
                     #     sampler_loss = torch.tensor(0, dtype=torch.float32)
 
-                    sampled_points1 = sampled_data1.transpose(2, 1)
-                    pred1, trans_feat1 = classifier(sampled_points1)
+                    pred1, trans_feat1 = classifier(sampled_data1)
                     loss_t1 = criterion(pred1, target.long(), trans_feat1)
                 else:
                     loss_t1 = 0

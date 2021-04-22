@@ -237,7 +237,8 @@ class SampleNet(nn.Module):
 
     def forward(self, x: torch.Tensor):
 
-        self.pi, self.phi = self.calculate_pi(x)
+        if self.forward_mode:
+            self.pi, self.phi = self.calculate_pi(x)
 
         if self.training:
             self.l0_grad, self.l0_loss = self.get_grad_loss(self.pi)
