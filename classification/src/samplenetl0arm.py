@@ -80,11 +80,11 @@ def square_distance(src, dst):
     Output:
         dist: per-point square distance, [B, N, M]
     """
-    B, N, _ = src.shape
-    _, M, _ = dst.shape
-    dist = -2 * torch.matmul(src, dst.permute(0, 2, 1))
-    dist += torch.sum(src ** 2, -1).view(B, N, 1)
-    dist += torch.sum(dst ** 2, -1).view(B, 1, M)
+    B, _, N = src.shape
+    _, _, M = dst.shape
+    dist = -2 * torch.matmul(src.permute(0, 2, 1), dst)
+    dist += torch.sum(src ** 2, 1).view(B, N, 1)
+    dist += torch.sum(dst ** 2, 1).view(B, 1, M)
     return dist
 
 
@@ -122,6 +122,7 @@ class SampleNet(nn.Module):
         self,
         k,
         bias,
+        ar,
         bottleneck_size,
         input_shape="bcn",
         output_shape="bcn"
@@ -169,7 +170,8 @@ class SampleNet(nn.Module):
         self.l0_grad = torch.tensor(0)
         self.num = torch.tensor(0)
         self.m = None
-        self.loga = torch.tensor(0)
+        self.phi = torch.tensor(0)
+        self.pi = torch.tensor(0)
         self.f1 = torch.tensor(0)
         self.f2 = torch.tensor(0)
         #self.k = 1024
@@ -179,55 +181,39 @@ class SampleNet(nn.Module):
         self.u = None
         self.local_rep = True
         self.forward_mode = True
-        self.ar = True
+        self.ar = ar
         self.fc4.bias.data.fill_(bias / self.k1)
 
-    def sample_z(self,loga):
-
-        if self.hardsigmoid:
-            pi = F.hardtanh(self.k1 * loga / 7. + .5, 0, 1) #.detach()
-        else:
-            pi = torch.sigmoid(self.k1 * loga) #.detach()
+    def sample_z(self, pi):
 
         if self.forward_mode:
-            z = torch.zeros_like(loga)
-            self.u = torch.zeros(loga.shape[1]).to(loga.device).uniform_(0, 1).expand(loga.shape[0], loga.shape[1])  # torch.zeros_like(loga).uniform_(0, 1)
-            #self.u = torch.zeros_like(loga).to(loga.device).uniform_(0, 1)
+            z = torch.zeros_like(pi)
+            self.u = torch.zeros(pi.shape[1]).to(pi.device).uniform_(0, 1).expand(pi.shape[0], pi.shape[1])  # torch.zeros_like(loga).uniform_(0, 1)
+            # self.u = torch.zeros_like(loga).to(loga.device).uniform_(0, 1)
             z[self.u < pi] = 1
 
             #if self.training:
             #    self.u = torch.zeros(loga.shape[1]).to(loga.device).uniform_(0, 1).expand(loga.shape[0], loga.shape[1]) #torch.zeros_like(loga).uniform_(0, 1)
+            #    #self.u = torch.zeros_like(loga).to(loga.device).uniform_(0, 1)
             #    z[self.u < pi] = 1
-            #    self.train_z = z
             #else:
             #    z[loga > 0] = 1
-            #    self.test_z = z
         else:
             pi2 = 1 - pi
             if self.u is None:
                 raise Exception('Forward pass first')
-            z = torch.zeros_like(loga)
+            z = torch.zeros_like(pi)
             z[self.u > pi2] = 1
 
         return z
 
-    def get_loss(self, loga):
-        if self.hardsigmoid:
-            pi = F.hardtanh(self.k1 * loga / 7. + .5, 0, 1)
-        else:
-            pi = torch.sigmoid(self.k1 * loga)
-
+    def get_loss(self, pi):
         l0 = pi.mean()
         return l0
 
-    def get_grad_loss(self, loga):
-        if self.hardsigmoid:
-            pi = F.hardtanh(self.k1 * loga / 7. + .5, 0, 1)
-        else:
-            pi = torch.sigmoid(self.k1 * loga)
-
+    def get_grad_loss(self, pi):
         l0 = pi.mean()
-        grad = pi*(1-pi)*self.k1/loga.numel() #shape[0]
+        grad = pi*(1-pi)*self.k1/pi.numel() #shape[0]
         return grad, l0
 
     def update_phi_gradient(self):
@@ -240,13 +226,7 @@ class SampleNet(nn.Module):
             e = self.k1 * ((self.f1 - self.f2) * (self.u - .5))
         return e
 
-    def forward(self, x: torch.Tensor,epoch):
-        # x shape should be B x 3 x N
-        if self.input_shape == "bnc":
-            x = x.permute(0, 2, 1)
-
-        if x.shape[1] != 3:
-            raise RuntimeError("shape of x must be of [Batch x 3 x NumInPoints]")
+    def calculate_pi(self, x: torch.Tensor):
 
         y = F.relu(self.bn1(self.conv1(x)))
         y = F.relu(self.bn2(self.conv2(y)))
@@ -259,39 +239,56 @@ class SampleNet(nn.Module):
         y = F.relu(self.bn_fc1(self.fc1(y)))
         y = F.relu(self.bn_fc2(self.fc2(y)))
         y = F.relu(self.bn_fc3(self.fc3(y)))
-        loga = self.fc4(y) #+ self.bias_l0).squeeze()
+        phi = self.fc4(y) #+ self.bias_l0).squeeze()
+
+        if self.hardsigmoid:
+            pi = F.hardtanh(self.k1 * phi / 7. + .5, 0, 1) #.detach()
+        else:
+            pi = torch.sigmoid(self.k1 * phi) #.detach()
 
         #y = F.relu(self.fc1(y))
         #y = F.relu(self.fc2(y))
         #y = F.relu(self.fc3(y))
         #loga = self.fc4(y) #+ self.bias_l0 #.reshape((x.shape[0],x.shape[2]))
 
-        self.loga = loga
+        self.phi = phi
+        self.pi = pi
+
+    def forward(self, x: torch.Tensor):
+
+        # x shape should be B x 3 x N
+        #if self.input_shape == "bnc":
+        #    x = x.permute(0, 2, 1)
+
+        #if x.shape[1] != 3:
+        #    raise RuntimeError("shape of x must be of [Batch x 3 x NumInPoints]")
+
+        self.calculate_pi(x)
 
         if self.training:
-            self.l0_grad, self.l0_loss = self.get_grad_loss(loga)
+            self.l0_grad, self.l0_loss = self.get_grad_loss(self.pi)
 
-        m = self.sample_z(loga)
-        self.num = (m > 0).sum(-1).float().max()
+        m = self.sample_z(self.pi)
+        self.num = (m > 0).sum(-1).float().mean()
         y = x * m.unsqueeze(1)
 
         #ind = torch.topk(loga, self.k, dim=-1)[1]
         #self.ind  = ind
         # Simplified points
 
-        simp = selecting(x.permute(0, 2, 1), m)
+        #simp = selecting(x.permute(0, 2, 1), m)
 
 
         #simp = batched_index_select(y, 2, ind)
 
-        # simp = y
+        simp = y
         #
-        # # Change to output shapes
-        # if self.output_shape == "bnc":
+        # Change to output shapes
+        #if self.output_shape == "bnc":
         #     simp = simp.permute(0, 2, 1)
 
         # Assert contiguous tensors
-        simp = simp.contiguous()
+        #simp = simp.contiguous()
 
         return simp
 

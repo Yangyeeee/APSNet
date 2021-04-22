@@ -105,14 +105,15 @@ def test(model, sampler, loader, criterion, num_class=40):
     sampler.forward_mode = True
     for j, data in tqdm(enumerate(loader), total=len(loader)):
         points, target = data
+        points = points.transpose(2,1)
         target = target[:, 0]
         points, target = points.cuda(), target.cuda()
         sampler = sampler.eval()
-        simplified = sampler(points, 0)
+        simplified = sampler(points)
         # y = batched_index_select(points[:, :, 3:], 1, ind)
         # points = torch.cat((p0_projected, y), dim=-1)
 
-        simplified = simplified.transpose(2, 1)
+        #simplified = simplified.transpose(2, 1)
 
         classifier = model.eval()
         pred, trans_feat = classifier(simplified)
@@ -217,6 +218,7 @@ def main(args):
         sampler = SampleNet(
             k=args.k,
             bias=args.bias,
+            ar=args.ar,
             bottleneck_size=args.bottleneck_size,
             input_shape="bnc",
             output_shape="bnc"
@@ -262,10 +264,10 @@ def main(args):
     loss_l0 = []
     loss_coverage = []
 
-    def compute_samplenet_loss(sampler, data, epoch):
+    def compute_samplenet_loss(sampler, data):
         """Sample point clouds using SampleNet and compute sampling associated losses."""
 
-        simplified = sampler(data, epoch)
+        simplified = sampler(data)
 
         # Sampling loss
         coverage_loss = sampler.get_simplification_loss(data, simplified)
@@ -287,6 +289,7 @@ def main(args):
             points = provider.random_point_dropout(points)
             points[:,:, 0:3] = provider.random_scale_point_cloud(points[:,:, 0:3])
             points[:,:, 0:3] = provider.shift_point_cloud(points[:,:, 0:3])
+            points = points.transpose(0,2,1)
             points = torch.Tensor(points)
             target = target[:, 0]
             writer.add_scalar('loss/K', sampler.k1, epoch * len(trainDataLoader) + batch_id)
@@ -295,20 +298,19 @@ def main(args):
 
             if sampler.training:
                 sampler.forward_mode = True
-                optimizer.zero_grad()
 
-                coverage_loss, sampled_data = compute_samplenet_loss(sampler, points, epoch)
+                coverage_loss, sampled_data = compute_samplenet_loss(sampler, points)
                 total_samples += sampler.num.item() * points.size()[0]
 
-                sampled_points = sampled_data.transpose(2, 1)
-                pred, trans_feat = classifier(sampled_points)
+                #sampled_points = sampled_data.transpose(2, 1)
+                pred, trans_feat = classifier(sampled_data)
                 loss_t = criterion(pred, target.long(), trans_feat)
                 loss_l = sampler.l0_loss * args.l0
                 loss_c = coverage_loss * args.beta
                 grad_l0 = sampler.l0_grad * args.l0
 
                 sampler.eval()
-                if args.ar is not True:
+                if sampler.ar is not True:
                     sampler.forward_mode = False
                     if sampler is not None: # and model.sampler.name == "samplenet":
                         coverage_loss1, sampled_data1 = compute_samplenet_loss(sampler, points, epoch)
@@ -342,9 +344,9 @@ def main(args):
                 total_correct += correct.item()
 
                 if sampler.training:
-                    # model.sampler.loga.register_hook(model.sampler.update_phi_gradient)
+                    optimizer.zero_grad()
                     grad_arm = sampler.update_phi_gradient()
-                    sampler.loga.backward(gradient=(grad_arm + grad_l0), retain_graph=False)
+                    sampler.phi.backward(gradient=(grad_arm + grad_l0), retain_graph=False)
 
                 optimizer.step()
                 global_step += 1
