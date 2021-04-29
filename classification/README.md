@@ -38,5 +38,9 @@ python train_samplenetorg.py --model pointnet_cls --log_dir pointnet --gpu 4 --s
 
 python train_samplenetarm.py --model pointnet_cls --log_dir pointnet --gpu 4 --l0 10000 --beta 0.01 --k 5 --bias 0 --sampler samplenet --sess ar10000 --ar --lr 0.001 --epoch 400 -b 128
 ```
+```
+## test greedy
 
+python testgreedy.py
+```
 
