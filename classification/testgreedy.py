@@ -97,22 +97,22 @@ def test_greedy(model, loader, writer, num_class=40):
             unselected_ind = index[unselected].reshape(2468, -1)
             logit = []
 
-            # for k in range(1024 - i):
-            #     tmp_index = unselected_ind[:,k].reshape(2468,-1)
-            #     tmp = batched_index_select(points, 1, tmp_index)
-            #     if selected_point.shape[1] != 0:
-            #         simplified = torch.cat((selected_point, tmp),dim=1)
-            #     else:
-            #         simplified = tmp
-            #     simplified = simplified.transpose(2, 1)
-            #     classifier = model.eval()
-            #     pred, trans_feat = classifier(simplified)
-            #     #tmp_logit = F.softmax(pred,dim=-1).max(-1)[0]
-            #     tmp_logit = pred.max(-1)[0]
-            #     logit.append(tmp_logit.reshape(-1,1))
+            for k in range(1024 - i):
+                tmp_index = unselected_ind[:,k].reshape(2468,-1)
+                tmp = batched_index_select(points, 1, tmp_index)
+                if selected_point.shape[1] != 0:
+                    simplified = torch.cat((selected_point, tmp),dim=1)
+                else:
+                    simplified = tmp
+                simplified = simplified.transpose(2, 1)
+                classifier = model.eval()
+                pred, trans_feat = classifier(simplified)
+                #tmp_logit = F.softmax(pred,dim=-1).max(-1)[0]
+                tmp_logit = pred.max(-1)[0]
+                logit.append(tmp_logit.reshape(-1,1))
 
-            #sel = torch.gather(unselected_ind,dim=-1, index=torch.argmax(torch.cat(logit,dim=-1),dim=-1).reshape(-1,1))
-            sel = torch.gather(unselected_ind, dim=-1, index=torch.LongTensor(2468, 1).random_(0, 1024-i).cuda())
+            sel = torch.gather(unselected_ind,dim=-1, index=torch.argmax(torch.cat(logit,dim=-1),dim=-1).reshape(-1,1))
+            #sel = torch.gather(unselected_ind, dim=-1, index=torch.LongTensor(2468, 1).random_(0, 1024-i).cuda())
             selected_ind = torch.cat((selected_ind,sel),dim=-1)
             unselected = torch.ones((2468, 1024),dtype=bool).cuda().scatter_(dim=-1,index=selected_ind,src=torch.tensor(0,dtype=bool))
 
