@@ -41,6 +41,6 @@ python train_samplenetarm.py --model pointnet_cls --log_dir pointnet --gpu 4 --l
 ```
 ## test greedy
 
-python testgreedy.py
+python testgreedy.py --beta 500 --max
 ```
 
