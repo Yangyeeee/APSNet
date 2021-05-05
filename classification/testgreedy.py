@@ -197,7 +197,7 @@ def test_greedy_batch(model, loader, writer, num_class=40):
 
                 cost_p2_p1 = square_distance(points.transpose(2, 1), simplified).min(-1)[0]
                 if args.max:
-                    cover_loss = -1 * args.beta * torch.max(cost_p2_p1, dim=-1, keepdim=True)
+                    cover_loss = -1 * args.beta * torch.max(cost_p2_p1, dim=-1, keepdim=True)[0]
                 else:
                     cover_loss = -1* args.beta *torch.mean(cost_p2_p1,dim=-1,keepdim=True)
 
