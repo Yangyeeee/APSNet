@@ -184,6 +184,7 @@ def test_greedy_batch(model, loader, writer, num_class=40, fps=False):
     unselected = torch.ones((2468, 1024)).bool().cuda()
     selected = torch.zeros((2468, 1024)).bool().cuda()
     index = (torch.ones((2468, 1024)) * (torch.tensor([i for i in range(1024)]).view(-1, 1024))).long().cuda()
+    classifier = model.eval()
 
     for i in range(32):
         class_acc = np.zeros((num_class, 3))
@@ -208,12 +209,25 @@ def test_greedy_batch(model, loader, writer, num_class=40, fps=False):
             logit = []
 
             if fps:
+                for k in range(1024 - i):
+                    tmp_index = unselected_ind_batch[:,k].reshape(N,-1)
+                    tmp = batched_index_select(points, 2, tmp_index)
+                    if selected_point.shape[2] != 0:
+                        simplified = torch.cat((selected_point, tmp), dim=2)
+                    else:
+                        simplified = tmp
+                    pred, trans_feat = classifier(simplified)
+                    tmp_logit = pred.max(-1, keepdim=True)[0]
+                    logit.append(tmp_logit)
+                score = torch.cat(logit, dim=-1)
+
                 if i == 0:
-                    sel = torch.gather(unselected_ind_batch, dim=-1, index=torch.LongTensor(N, 1).random_(0, 1024).cuda())
+                    #sel = torch.gather(unselected_ind_batch, dim=-1, index=torch.LongTensor(N, 1).random_(0, 1024).cuda())
+                    best_idx = score.max(-1, keepdim=True)[1]
                 else:
                     cost_p2_p1 = square_distance(unselected_point, selected_point).min(-1)[0]
-                    farthest = torch.max(cost_p2_p1, -1, keepdim=True)[1]
-                    sel = torch.gather(unselected_ind_batch, dim=-1, index=farthest)
+                    best_idx = (args.beta * cost_p2_p1 + (1 - args.beta) * score).max(-1, keepdim=True)[1]
+                sel = torch.gather(unselected_ind_batch, dim=-1, index=best_idx)
             else:
                 for k in range(1024 - i):
                     tmp_index = unselected_ind_batch[:,k].reshape(N,-1)
@@ -222,18 +236,15 @@ def test_greedy_batch(model, loader, writer, num_class=40, fps=False):
                         simplified = torch.cat((selected_point, tmp), dim=2)
                     else:
                         simplified = tmp
-                    #simplified = simplified.transpose(2, 1)
-                    classifier = model.eval()
                     pred, trans_feat = classifier(simplified)
-                    #tmp_logit = F.softmax(pred,dim=-1).max(-1)[0]
 
                     cost_p2_p1 = square_distance(unselected_point, simplified).min(-1)[0]
                     if args.max:
-                        cover_loss = -1 * args.beta * torch.max(cost_p2_p1, dim=-1, keepdim=True)[0]
+                        coverage = -1 * torch.max(cost_p2_p1, dim=-1, keepdim=True)[0]
                     else:
-                        cover_loss = -1 * args.beta * torch.mean(cost_p2_p1, dim=-1, keepdim=True)
+                        coverage = -1 * torch.mean(cost_p2_p1, dim=-1, keepdim=True)
 
-                    tmp_logit =  cover_loss #+ pred.max(-1,keepdim=True)[0]
+                    tmp_logit =  args.beta * coverage + (1 - args.beta) * pred.max(-1,keepdim=True)[0]
                     logit.append(tmp_logit)
 
                 sel = torch.gather(unselected_ind_batch, dim=-1, index=torch.argmax(torch.cat(logit, dim=-1), dim=-1, keepdim=True))
