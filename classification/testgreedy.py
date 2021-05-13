@@ -23,7 +23,7 @@ sys.path.append(os.path.join(ROOT_DIR, 'models'))
 def parse_args():
     '''PARAMETERS'''
     parser = argparse.ArgumentParser('SSN')
-    parser.add_argument('-b','--batch_size', type=int, default=512, help='batch size in training [default: 32]')
+    parser.add_argument('-b','--batch_size', type=int, default=2468, help='batch size in training [default: 32]')
     parser.add_argument('--model', default='pointnet_cls', help='model name [default: pointnet_cls]')
     parser.add_argument('--gpu', type=str, default='0', help='specify gpu device [default: 0]')
     parser.add_argument('--log_dir', type=str, default='pointnet', help='experiment root')
@@ -32,7 +32,8 @@ def parse_args():
     parser.add_argument('--datafolder',  type=str, help='dataset folder')
     parser.add_argument("-in", "--num-in-points", type=int, default=1024, help="Number of input Points [default: 1024]")
     parser.add_argument('--beta', default=1.0, type=float, help='beta for coverage loss')
-    parser.add_argument('--max', action='store_true', default=False, help='using FPS')
+    parser.add_argument('--max', action='store_true', default=False, help='using max')
+    parser.add_argument('--fps', action='store_true', default=False, help='using FPS')
     # For testing
     parser.add_argument('--test', action='store_true', help='Perform testing routine. Otherwise, the script will train.')
     return parser.parse_args()
@@ -106,60 +107,79 @@ def square_distance(src, dst):
     dist += torch.sum(dst ** 2, 1).view(B, 1, M)
     return dist
 
+def farthest_point_sample(xyz, npoint):
+    """
+    Input:
+        xyz: pointcloud data, [B, N, 3]
+        npoint: number of samples
+    Return:
+        centroids: sampled pointcloud index, [B, npoint]
+    """
+    device = xyz.device
+    B, N, C = xyz.shape
+    centroids = torch.zeros(B, npoint, dtype=torch.long).to(device)
+    distance = torch.ones(B, N).to(device) * 1e10
+    farthest = torch.randint(0, N, (B,), dtype=torch.long).to(device)
+    batch_indices = torch.arange(B, dtype=torch.long).to(device)
+    for i in range(npoint):
+        centroids[:, i] = farthest
+        centroid = xyz[batch_indices, farthest, :].view(B, 1, 3)
+        dist = torch.sum((xyz - centroid) ** 2, -1)      # Bx1024
+        mask = dist < distance
+        distance[mask] = dist[mask]
+        farthest = torch.max(distance, -1)[1]
+    return centroids
 
-# def test_greedy(model, loader, writer, num_class=40):
-#     index = (torch.ones((2468,1024)) * (torch.tensor([i for i in range(1024)]).view(-1,1024))).long().cuda()
-#     unselected = torch.ones((2468, 1024)).bool().cuda()
-#     selected = torch.zeros((2468, 1024)).bool().cuda()
-#     for j, data in tqdm(enumerate(loader), total=len(loader)):
-#         points, target = data
-#         target = target[:, 0]
-#         points, target = points.cuda(), target.cuda()
-#         selected_ind = index[selected].reshape(2468, -1)
-#         for i in range(32):
-#             class_acc = np.zeros((num_class, 3))
-#             selected_point = batched_index_select(points, 1, selected_ind)
-#             unselected_ind = index[unselected].reshape(2468, -1)
-#             logit = []
-#
-#             for k in range(1024 - i):
-#                 tmp_index = unselected_ind[:,k].reshape(2468,-1)
-#                 tmp = batched_index_select(points, 1, tmp_index)
-#                 if selected_point.shape[1] != 0:
-#                     simplified = torch.cat((selected_point, tmp),dim=1)
-#                 else:
-#                     simplified = tmp
-#                 simplified = simplified.transpose(2, 1)
-#                 classifier = model.eval()
-#                 pred, trans_feat = classifier(simplified)
-#                 #tmp_logit = F.softmax(pred,dim=-1).max(-1)[0]
-#                 tmp_logit = pred.max(-1)[0]
-#                 logit.append(tmp_logit.reshape(-1,1))
-#
-#             sel = torch.gather(unselected_ind,dim=-1, index=torch.argmax(torch.cat(logit,dim=-1),dim=-1).reshape(-1,1))
-#             #sel = torch.gather(unselected_ind, dim=-1, index=torch.LongTensor(2468, 1).random_(0, 1024-i).cuda())
-#             selected_ind = torch.cat((selected_ind,sel),dim=-1)
-#             unselected = torch.ones((2468, 1024),dtype=bool).cuda().scatter_(dim=-1,index=selected_ind,src=torch.tensor(0,dtype=bool))
-#
-#             simplified = batched_index_select(points, 1, selected_ind)
-#             classifier = model.eval()
-#             simplified = simplified.transpose(2, 1)
-#             pred, trans_feat = classifier(simplified)
-#             pred_choice = pred.data.max(1)[1]
-#             for cat in np.unique(target.cpu()):
-#                 classacc = pred_choice[target==cat].eq(target[target==cat].long().data).cpu().sum()
-#                 class_acc[cat,0]+= classacc.item()/float(points[target==cat].size()[0])
-#                 class_acc[cat,1]+=1
-#             correct = pred_choice.eq(target.long().data).cpu().sum()
-#             class_acc[:,2] =  class_acc[:,0] / class_acc[:,1]
-#             class_acc = np.mean(class_acc[:,2])
-#             instance_acc = correct.item() / points.size()[0]
-#
-#             print('%f  Test Instance Accuracy: %f, Class Accuracy: %f' % ( i, instance_acc, class_acc))
-#             writer.add_scalar('acc/test_i', instance_acc,i )
-#             writer.add_scalar('acc/test_c', class_acc, i)
+def index_points(points, idx):
+    """
 
-def test_greedy_batch(model, loader, writer, num_class=40):
+    Input:
+        points: input points data, [B, N, C]
+        idx: sample index data, [B, S]
+    Return:
+        new_points:, indexed points data, [B, S, C]
+    """
+    device = points.device
+    B = points.shape[0]
+    view_shape = list(idx.shape)
+    view_shape[1:] = [1] * (len(view_shape) - 1)
+    repeat_shape = list(idx.shape)
+    repeat_shape[0] = 1
+    batch_indices = torch.arange(B, dtype=torch.long).to(device).view(view_shape).repeat(repeat_shape)
+    new_points = points[batch_indices, idx, :]
+    return new_points
+
+def test_fps(model, loader, writer, num_class=40):
+
+    for j, data in tqdm(enumerate(loader), total=len(loader)):
+        points, target = data
+        target = target[:, 0]
+
+        points, target = points.cuda(), target.cuda()
+        p_ind = farthest_point_sample(points,32)
+        p = index_points(points, p_ind)
+        for i in range(32):
+            class_acc = np.zeros((num_class, 3))
+            simplified = p[:,0:i+1]
+            classifier = model.eval()
+            simplified = simplified.transpose(2, 1)
+            pred, trans_feat = classifier(simplified)
+            pred_choice = pred.data.max(1)[1]
+            for cat in np.unique(target.cpu()):
+                classacc = pred_choice[target == cat].eq(target[target == cat].long().data).cpu().sum()
+                class_acc[cat, 0] += classacc.item() / float(p[target == cat].size()[0])
+                class_acc[cat, 1] += 1
+            correct = pred_choice.eq(target.long().data).cpu().sum()
+
+            class_acc[:, 2] = class_acc[:, 0] / class_acc[:, 1]
+            class_acc = np.mean(class_acc[:, 2])
+            instance_acc = correct.item() / p.size()[0]
+            print('%f  Test Instance Accuracy: %f, Class Accuracy: %f' % (i, instance_acc, class_acc))
+            writer.add_scalar('acc/test_i', instance_acc, i)
+            writer.add_scalar('acc/test_c', class_acc, i)
+
+
+def test_greedy_batch(model, loader, writer, num_class=40,fps=False):
 
     unselected = torch.ones((2468, 1024)).bool().cuda()
     selected = torch.zeros((2468, 1024)).bool().cuda()
@@ -182,30 +202,41 @@ def test_greedy_batch(model, loader, writer, num_class=40):
             selected_ind_batch = index[ind_l:ind_h][selected_batch].reshape(N, -1)
             unselected_ind_batch = index[ind_l:ind_h][unselected_batch].reshape(N, -1)
             selected_point = batched_index_select(points, 1, selected_ind_batch)
+            unselected_point = batched_index_select(points, 1, unselected_ind_batch)
             logit = []
-            for k in range(1024 - i):
-                tmp_index = unselected_ind_batch[:,k].reshape(N,-1)
-                tmp = batched_index_select(points, 1, tmp_index)
-                if selected_point.shape[1] != 0:
-                    simplified = torch.cat((selected_point, tmp),dim=1)
+
+            if fps:
+                if i == 0:
+                    sel = torch.gather(unselected_ind_batch, dim=-1, index=torch.LongTensor(N, 1).random_(0, 1024).cuda())
                 else:
-                    simplified = tmp
-                simplified = simplified.transpose(2, 1)
-                classifier = model.eval()
-                pred, trans_feat = classifier(simplified)
-                #tmp_logit = F.softmax(pred,dim=-1).max(-1)[0]
+                    cost_p2_p1 = square_distance(unselected_point.transpose(2, 1), selected_point.transpose(2, 1)).min(-1)[0]
+                    farthes = torch.max(cost_p2_p1, -1,keepdim=True)[1]
+                    sel = torch.gather(unselected_ind_batch, dim=-1, index=farthes)
+            else:
 
-                cost_p2_p1 = square_distance(points.transpose(2, 1), simplified).min(-1)[0]
-                if args.max:
-                    cover_loss = -1 * args.beta * torch.max(cost_p2_p1, dim=-1, keepdim=True)[0]
-                else:
-                    cover_loss = -1* args.beta *torch.mean(cost_p2_p1,dim=-1,keepdim=True)
+                for k in range(1024 - i):
+                    tmp_index = unselected_ind_batch[:,k].reshape(N,-1)
+                    tmp = batched_index_select(points, 1, tmp_index)
+                    if selected_point.shape[1] != 0:
+                        simplified = torch.cat((selected_point, tmp),dim=1)
+                    else:
+                        simplified = tmp
+                    simplified = simplified.transpose(2, 1)
+                    classifier = model.eval()
+                    pred, trans_feat = classifier(simplified)
+                    #tmp_logit = F.softmax(pred,dim=-1).max(-1)[0]
 
-                tmp_logit = pred.max(-1,keepdim=True)[0] + cover_loss
-                logit.append(tmp_logit)
+                    cost_p2_p1 = square_distance(unselected_point.transpose(2, 1), simplified).min(-1)[0] #bx1024x(i+1)
+                    if args.max:
+                        cover_loss = -1* args.beta *torch.max(cost_p2_p1, dim=-1, keepdim=True)[0]
+                    else:
+                        cover_loss = -1* args.beta *torch.mean(cost_p2_p1,dim=-1,keepdim=True)
 
-            sel = torch.gather(unselected_ind_batch,dim=-1, index=torch.argmax(torch.cat(logit,dim=-1),dim=-1,keepdim=True))
-            #sel = torch.gather(unselected_ind, dim=-1, index=torch.LongTensor(2468, 1).random_(0, 1024-i).cuda())
+                    tmp_logit =  pred.max(-1,keepdim=True)[0] + cover_loss  #
+                    logit.append(tmp_logit)
+
+                sel = torch.gather(unselected_ind_batch,dim=-1, index=torch.argmax(torch.cat(logit,dim=-1),dim=-1,keepdim=True))
+                #sel = torch.gather(unselected_ind, dim=-1, index=torch.LongTensor(2468, 1).random_(0, 1024-i).cuda())
 
             selected_ind = torch.cat((selected_ind_batch,sel),dim=-1)
             unselected[ind_l: ind_h] = torch.ones((N, 1024),dtype=bool).cuda().scatter_(dim=-1,index=selected_ind,src=torch.tensor(0,dtype=bool))
@@ -295,7 +326,8 @@ def main(args):
 
     with torch.no_grad():
 
-        test_greedy_batch(classifier.eval(), testDataLoader, writer)
+        test_greedy_batch(classifier.eval(), testDataLoader, writer,fps=args.fps)
+        # test_fps(classifier.eval(), testDataLoader, writer)
     writer.close()
 
 if __name__ == '__main__':
