@@ -179,7 +179,7 @@ def test_fps(model, loader, writer, num_class=40):
             writer.add_scalar('acc/test_c', class_acc, i)
 
 
-def test_greedy_batch(model, loader, writer, num_class=40,fps=False):
+def test_greedy_batch(model, loader, writer, num_class=40, fps=False):
 
     unselected = torch.ones((2468, 1024)).bool().cuda()
     selected = torch.zeros((2468, 1024)).bool().cuda()
@@ -210,10 +210,9 @@ def test_greedy_batch(model, loader, writer, num_class=40,fps=False):
                     sel = torch.gather(unselected_ind_batch, dim=-1, index=torch.LongTensor(N, 1).random_(0, 1024).cuda())
                 else:
                     cost_p2_p1 = square_distance(unselected_point.transpose(2, 1), selected_point.transpose(2, 1)).min(-1)[0]
-                    farthes = torch.max(cost_p2_p1, -1,keepdim=True)[1]
-                    sel = torch.gather(unselected_ind_batch, dim=-1, index=farthes)
+                    farthest = torch.max(cost_p2_p1, -1, keepdim=True)[1]
+                    sel = torch.gather(unselected_ind_batch, dim=-1, index=farthest)
             else:
-
                 for k in range(1024 - i):
                     tmp_index = unselected_ind_batch[:,k].reshape(N,-1)
                     tmp = batched_index_select(points, 1, tmp_index)
@@ -232,7 +231,7 @@ def test_greedy_batch(model, loader, writer, num_class=40,fps=False):
                     else:
                         cover_loss = -1* args.beta *torch.mean(cost_p2_p1,dim=-1,keepdim=True)
 
-                    tmp_logit =  pred.max(-1,keepdim=True)[0] + cover_loss  #
+                    tmp_logit =  cover_loss #+ pred.max(-1,keepdim=True)[0]
                     logit.append(tmp_logit)
 
                 sel = torch.gather(unselected_ind_batch,dim=-1, index=torch.argmax(torch.cat(logit,dim=-1),dim=-1,keepdim=True))
@@ -326,8 +325,9 @@ def main(args):
 
     with torch.no_grad():
 
-        test_greedy_batch(classifier.eval(), testDataLoader, writer,fps=args.fps)
+        test_greedy_batch(classifier.eval(), testDataLoader, writer, fps=args.fps)
         # test_fps(classifier.eval(), testDataLoader, writer)
+
     writer.close()
 
 if __name__ == '__main__':
