@@ -227,7 +227,7 @@ def test_greedy_batch(model, loader, writer, num_class=40, fps=False):
                     pred, trans_feat = classifier(simplified)
                     #tmp_logit = F.softmax(pred,dim=-1).max(-1)[0]
 
-                    cost_p2_p1 = square_distance(unselected_point, simplified).min(-1)[0] #bx1024x(i+1)
+                    cost_p2_p1 = square_distance(unselected_point, simplified).min(-1)[0]
                     if args.max:
                         cover_loss = -1 * args.beta * torch.max(cost_p2_p1, dim=-1, keepdim=True)[0]
                     else:
@@ -241,14 +241,13 @@ def test_greedy_batch(model, loader, writer, num_class=40, fps=False):
 
             selected_ind = torch.cat((selected_ind_batch, sel), dim=-1)
             unselected[ind_l: ind_h] = torch.ones((N, 1024),dtype=bool).cuda().scatter_(dim=-1,index=selected_ind,src=torch.tensor(0,dtype=bool))
-            selected[ind_l: ind_h] = torch.zeros((N, 1024),dtype=bool).cuda().scatter_(dim=-1,index=selected_ind,src=torch.tensor(1,dtype=bool))
+            selected[ind_l: ind_h] =  torch.zeros((N, 1024),dtype=bool).cuda().scatter_(dim=-1,index=selected_ind,src=torch.tensor(1,dtype=bool))
 
         selected_ind = index[selected].reshape(2468, -1)
         p = torch.cat(p,dim=0)
         t = torch.cat(t,dim=0)
         simplified = batched_index_select(p, 2, selected_ind)
         classifier = model.eval()
-        #simplified = simplified.transpose(2, 1)
         pred, trans_feat = classifier(simplified)
         pred_choice = pred.data.max(1)[1]
         for cat in np.unique(t.cpu()):
@@ -256,7 +255,6 @@ def test_greedy_batch(model, loader, writer, num_class=40, fps=False):
             class_acc[cat,0]+= classacc.item()/float(p[t ==cat].size()[0])
             class_acc[cat,1]+=1
         correct = pred_choice.eq(t.long().data).cpu().sum()
-
 
         class_acc[:,2] =  class_acc[:,0] / class_acc[:,1]
         class_acc = np.mean(class_acc[:,2])
