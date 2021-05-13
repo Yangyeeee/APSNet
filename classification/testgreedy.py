@@ -184,12 +184,14 @@ def test_greedy_batch(model, loader, writer, num_class=40, fps=False):
     unselected = torch.ones((2468, 1024)).bool().cuda()
     selected = torch.zeros((2468, 1024)).bool().cuda()
     index = (torch.ones((2468, 1024)) * (torch.tensor([i for i in range(1024)]).view(-1, 1024))).long().cuda()
+
     for i in range(32):
         class_acc = np.zeros((num_class, 3))
         p = []
         t = []
         for j, data in tqdm(enumerate(loader), total=len(loader)):
             points, target = data
+            points = points.transpose(2, 1)
             target = target[:, 0]
             N = points.shape[0]
             points, target = points.cuda(), target.cuda()
@@ -201,52 +203,52 @@ def test_greedy_batch(model, loader, writer, num_class=40, fps=False):
             unselected_batch = unselected[ind_l:ind_h]
             selected_ind_batch = index[ind_l:ind_h][selected_batch].reshape(N, -1)
             unselected_ind_batch = index[ind_l:ind_h][unselected_batch].reshape(N, -1)
-            selected_point = batched_index_select(points, 1, selected_ind_batch)
-            unselected_point = batched_index_select(points, 1, unselected_ind_batch)
+            selected_point = batched_index_select(points, 2, selected_ind_batch)
+            unselected_point = batched_index_select(points, 2, unselected_ind_batch)
             logit = []
 
             if fps:
                 if i == 0:
                     sel = torch.gather(unselected_ind_batch, dim=-1, index=torch.LongTensor(N, 1).random_(0, 1024).cuda())
                 else:
-                    cost_p2_p1 = square_distance(unselected_point.transpose(2, 1), selected_point.transpose(2, 1)).min(-1)[0]
+                    cost_p2_p1 = square_distance(unselected_point, selected_point).min(-1)[0]
                     farthest = torch.max(cost_p2_p1, -1, keepdim=True)[1]
                     sel = torch.gather(unselected_ind_batch, dim=-1, index=farthest)
             else:
                 for k in range(1024 - i):
                     tmp_index = unselected_ind_batch[:,k].reshape(N,-1)
-                    tmp = batched_index_select(points, 1, tmp_index)
-                    if selected_point.shape[1] != 0:
-                        simplified = torch.cat((selected_point, tmp),dim=1)
+                    tmp = batched_index_select(points, 2, tmp_index)
+                    if selected_point.shape[2] != 0:
+                        simplified = torch.cat((selected_point, tmp), dim=2)
                     else:
                         simplified = tmp
-                    simplified = simplified.transpose(2, 1)
+                    #simplified = simplified.transpose(2, 1)
                     classifier = model.eval()
                     pred, trans_feat = classifier(simplified)
                     #tmp_logit = F.softmax(pred,dim=-1).max(-1)[0]
 
-                    cost_p2_p1 = square_distance(unselected_point.transpose(2, 1), simplified).min(-1)[0] #bx1024x(i+1)
+                    cost_p2_p1 = square_distance(unselected_point, simplified).min(-1)[0] #bx1024x(i+1)
                     if args.max:
-                        cover_loss = -1* args.beta *torch.max(cost_p2_p1, dim=-1, keepdim=True)[0]
+                        cover_loss = -1 * args.beta * torch.max(cost_p2_p1, dim=-1, keepdim=True)[0]
                     else:
-                        cover_loss = -1* args.beta *torch.mean(cost_p2_p1,dim=-1,keepdim=True)
+                        cover_loss = -1 * args.beta * torch.mean(cost_p2_p1, dim=-1, keepdim=True)
 
                     tmp_logit =  cover_loss #+ pred.max(-1,keepdim=True)[0]
                     logit.append(tmp_logit)
 
-                sel = torch.gather(unselected_ind_batch,dim=-1, index=torch.argmax(torch.cat(logit,dim=-1),dim=-1,keepdim=True))
+                sel = torch.gather(unselected_ind_batch, dim=-1, index=torch.argmax(torch.cat(logit, dim=-1), dim=-1, keepdim=True))
                 #sel = torch.gather(unselected_ind, dim=-1, index=torch.LongTensor(2468, 1).random_(0, 1024-i).cuda())
 
-            selected_ind = torch.cat((selected_ind_batch,sel),dim=-1)
+            selected_ind = torch.cat((selected_ind_batch, sel), dim=-1)
             unselected[ind_l: ind_h] = torch.ones((N, 1024),dtype=bool).cuda().scatter_(dim=-1,index=selected_ind,src=torch.tensor(0,dtype=bool))
             selected[ind_l: ind_h] = torch.zeros((N, 1024),dtype=bool).cuda().scatter_(dim=-1,index=selected_ind,src=torch.tensor(1,dtype=bool))
 
         selected_ind = index[selected].reshape(2468, -1)
         p = torch.cat(p,dim=0)
         t = torch.cat(t,dim=0)
-        simplified = batched_index_select(p, 1, selected_ind)
+        simplified = batched_index_select(p, 2, selected_ind)
         classifier = model.eval()
-        simplified = simplified.transpose(2, 1)
+        #simplified = simplified.transpose(2, 1)
         pred, trans_feat = classifier(simplified)
         pred_choice = pred.data.max(1)[1]
         for cat in np.unique(t.cpu()):
