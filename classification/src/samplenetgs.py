@@ -8,7 +8,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 
-# def gumbel_softmax(logits, temperature=0.3, k=32, train=False):
+# def gumbel_softmax(logits, temp=0.3, k=32, train=False):
 #     """
 #     input: [*, n_class]
 #     return: flatten --> [*, n_class] an one-hot vector
@@ -18,15 +18,15 @@ import torch.nn.functional as F
 #     U = torch.rand((logits.shape[0],k,logits.shape[-1])).type_as(logits) + 1e-20
 #     g = torch.log(U) - torch.log(1 - U)
 #     noisy_logits  = logits + g
-#     samples = F.softmax(noisy_logits  / temperature, dim=-1)
+#     samples = F.softmax(noisy_logits  / temp, dim=-1)
 #     return samples
 
-def gumbel_softmax(logits, temperature=0.03, k=32, train=False):
+def gumbel_softmax(logits, temp=0.3, k=32, train=False):
     tmp = []
     logits = logits - torch.max(logits, dim=-1, keepdim=True)[0]
     for i in range(k):
 
-        z = F.softmax(logits/temperature,dim=-1)
+        z = F.softmax(logits/temp,dim=-1)
         logits = logits + torch.log(1-z + 1e-8)
         tmp.append(z.unsqueeze(1))
     samples = torch.cat(tmp, dim=1)
@@ -165,6 +165,11 @@ class SampleNet(nn.Module):
         self.input_shape = input_shape
         self.output_shape = output_shape
         self.k = 32
+        self.m = 0
+        self.tmp = 0
+        self.t = torch.tensor(1, dtype=torch.float32) #torch.nn.Parameter(torch.tensor(0.8,requires_grad=True, dtype=torch.float32))
+        self.min_t = torch.tensor(0.3, dtype=torch.float32)
+        self.loss = 0
 
     def forward(self, x: torch.Tensor):
         # x shape should be B x 3 x N
@@ -189,12 +194,15 @@ class SampleNet(nn.Module):
 
 
         # Simplified points
-        simp = y
+        simp = None
         match = None
         proj = None
 
         if self.training:
-            m = gumbel_softmax(loga, k=self.k,train=self.training)
+            t = torch.max(self.t**2, self.min_t).to(y.device)
+            m = gumbel_softmax(loga,temp=t, k=self.k,train=self.training)
+            self.m = m
+            self.tmp = t
             y = (x.unsqueeze(1) * m.unsqueeze(-2)).sum(-1)  # nx1x3x1024 * nx32x1x1024 --> nx32x3
 
             # Simplified points

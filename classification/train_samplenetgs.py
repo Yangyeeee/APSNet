@@ -285,6 +285,8 @@ def main(args):
     for epoch in range(start_epoch, args.epoch):
         log_string('Epoch %d (%d/%s):' % (global_epoch + 1, epoch + 1, args.epoch))
         scheduler.step()
+        # if epoch%10 ==0 and epoch >0:
+        #     sampler.t *= 0.8
         for batch_id, data in tqdm(enumerate(trainDataLoader, 0), total=len(trainDataLoader), smoothing=0.9):
             points, target = data
             points = points.data.numpy()
@@ -318,6 +320,7 @@ def main(args):
         train_instance_acc = np.mean(mean_correct)
         log_string('Train Instance Accuracy: %f' % train_instance_acc)
         writer.add_scalar('acc/train', train_instance_acc, epoch)
+        writer.add_scalar('acc/temperature', sampler.tmp, epoch)
         writer.add_scalar('loss/loss_task', np.mean(loss_task), epoch)
         writer.add_scalar('loss/loss_simple', np.mean(loss_simple), epoch)
         writer.add_scalar('loss/train_loss', np.mean(loss_task) + np.mean(loss_simple) , epoch)
