@@ -23,8 +23,9 @@ import torch.nn.functional as F
 
 def gumbel_softmax(logits, temperature=0.03, k=32, train=False):
     tmp = []
+    logits = logits - torch.max(logits, dim=-1, keepdim=True)[0]
     for i in range(k):
-        logits = logits - torch.max(logits,dim=-1, keepdim=True)[0]
+
         z = F.softmax(logits/temperature,dim=-1)
         logits = logits + torch.log(1-z + 1e-8)
         tmp.append(z.unsqueeze(1))
