@@ -9,11 +9,11 @@ import torchvision
 from tqdm import tqdm
 
 
-
 from torch.utils.tensorboard import SummaryWriter
 import time
 from time import localtime
 
+# from torchnet import meter
 
 # addpath('../')
 # sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir)))
@@ -52,9 +52,9 @@ def options(argv=None, parser=None):
     # projection arguments
     parser.add_argument("-gs", "--projection-group-size", type=int, default=8, help='Neighborhood size in Soft Projection [default: 8]')
     parser.add_argument("--lmbda", type=float, default=0.01, help="Projection regularization loss weight [default: 0.01]")
-    parser.add_argument('-o', '--outfile', required=True, type=str,
+    parser.add_argument('-o', '--outfile', type=str,
                         metavar='BASENAME', help='output filename (prefix)')  # the result: ${BASENAME}_model_best.pth
-    parser.add_argument('--datafolder', required=True, type=str, help='dataset folder')
+    parser.add_argument('--datafolder', default="car_hdf5_2048", type=str, help='dataset folder')
 
     # For testing
     parser.add_argument('--test', action='store_true',
@@ -68,18 +68,19 @@ def options(argv=None, parser=None):
 
     parser.add_argument('--loss-type', default=0, choices=[0, 1], type=int,
                         metavar='TYPE', help='Supervised (0) or Unsupervised (1)')
-    parser.add_argument('--sampler', required=True, choices=['fps', 'samplenet', 'random', 'none'], type=str,
+    parser.add_argument('--sampler', default="samplenet", choices=['fps', 'samplenet', 'random', 'none'], type=str,
                         help='Sampling method.')
 
-    parser.add_argument('--transfer-from', type=str,
+    parser.add_argument('--transfer-from', type=str, default="log/baseline/PCRNet1024_model_best.pth",
                         metavar='PATH', help='path to trained pcrnet')
     parser.add_argument('--train-pcrnet', action='store_true',
                         help='Allow PCRNet training.')
-    parser.add_argument('--train-samplenet', action='store_true',
+    parser.add_argument('--train-samplenet', action='store_true',default=True,
                         help='Allow SampleNet training.')
-
+    parser.add_argument('--gpu', type=str, default='0', help='specify gpu device [default: 0]')
     parser.add_argument('--num-sampled-clouds', choices=[1, 2], type=int, default=2,
                         help='Number of point clouds to sample (Source / Source + Template)')
+    parser.add_argument('--sess', type=str, default="default", help='session')
 
     # settings for on training
     parser.add_argument('--workers', default=4, type=int,
@@ -96,11 +97,8 @@ def options(argv=None, parser=None):
                         metavar='PATH', help='path to latest checkpoint (default: null (no-use))')
     parser.add_argument('--pretrained', default='', type=str,
                         metavar='PATH', help='path to pretrained model file (default: null (no-use))')
-    parser.add_argument('--device', default='cuda', type=str,
+    parser.add_argument('--device', default='cuda:0', type=str,
                         metavar='DEVICE', help='use CUDA if available')
-    parser.add_argument('--gpu', default="0", type=str,
-                        metavar='DEVICE', help='use CUDA if available')
-    parser.add_argument('--sess', default='default', type=str, help='session name')
 
     args = parser.parse_args(argv)
     return args
@@ -178,7 +176,7 @@ def train(args, trainset, testset, action):
     learnable_params = filter(lambda p: p.requires_grad, model.parameters())
 
     if args.optimizer == "Adam":
-        optimizer = torch.optim.Adam(learnable_params, lr=args.lr)
+        optimizer = torch.optim.Adam(learnable_params, lr=1e-3)
     elif args.optimizer == "RMSProp":
         optimizer = torch.optim.RMSprop(learnable_params, lr=0.001)
     else:
@@ -202,7 +200,7 @@ def train(args, trainset, testset, action):
 
         is_best = val_loss < min_loss
         min_loss = min(val_loss, min_loss)
-        writer.add_scalar('error', val_rotation_error, epoch)
+
         LOGGER.info(
             "epoch, %04d, train_loss=%f, train_rotation_error=%f, val_loss=%f, val_rotation_error=%f",
             epoch + 1,
@@ -280,7 +278,7 @@ class Action:
                 initial_temperature=1.0,
                 input_shape="bnc",
                 output_shape="bnc",
-                skip_projection=self.SKIP_PROJECTION,
+                skip_projection=True,
             )
 
             if self.TRAIN_SAMPLENET:
@@ -542,7 +540,7 @@ class Action:
         # Projection loss
         projection_loss = model.sampler.get_projection_loss()
 
-        samplenet_loss = self.ALPHA * simplification_loss + self.LMBDA * projection_loss
+        samplenet_loss = self.ALPHA * simplification_loss #+ self.LMBDA * projection_loss
 
         samplenet_loss_info = {
             "simplification_loss": simplification_loss,
@@ -654,24 +652,44 @@ def get_datasets(args):
 if __name__ == "__main__":
 
     # from src import sputils
+
     ARGS = options()
     os.environ["CUDA_VISIBLE_DEVICES"] = ARGS.gpu
     from data.modelnet_loader_torch import ModelNetCls
     from models import pcrnet
     from src import ChamferDistance, FPSSampler, RandomSampler
-    from src.samplenet import SampleNet
+    from src.lstm import SampleNet
     from src.pctransforms import OnUnitCube, PointcloudToTensor
     from src.qdataset import QuaternionFixedDataset, QuaternionTransform, rad_to_deg
 
     torch.manual_seed(0)
-    current_time = time.strftime('%d_%H:%M:%S', localtime())
-    writer = SummaryWriter(log_dir='runs/' + current_time+ '_' + ARGS.sess, flush_secs=30)
-    logging.basicConfig(
-        level=logging.DEBUG,
-        format="%(levelname)s:%(name)s, %(asctime)s, %(message)s",
-        filename=f"{ARGS.outfile}.log",
-    )
-    LOGGER.debug("Training (PID=%d), %s", os.getpid(), ARGS)
 
-    _ = main(ARGS)
-    # LOGGER.debug("done (PID=%d)", os.getpid())
+    if ARGS.test:
+        nums = [8,16,32,64]
+        sess = ARGS.sess
+        for num in nums:
+            ARGS.num_out_points = num
+            ARGS.pretrained = "log/lstm/lstm{}_model_best.pth".format(ARGS.num_out_points)
+            res = main(ARGS)
+            print(res)
+    else:
+        acc = []
+        nums = [8,16,32,64]
+        sess = ARGS.sess
+        for num in nums:
+            ARGS.num_out_points = num
+            ARGS.outfile = "log/lstm/lstm{}".format(ARGS.num_out_points)
+            ARGS.sess = sess + "_out{}".format(ARGS.num_out_points)
+            print(ARGS)
+            logging.basicConfig(
+                level=logging.DEBUG,
+                format="%(levelname)s:%(name)s, %(asctime)s, %(message)s",
+                filename=f"{ARGS.outfile}.log", )
+
+            LOGGER.debug("Training (PID=%d), %s", os.getpid(), ARGS)
+            res = main(ARGS)
+            acc.append(res)
+            print(acc)
+            LOGGER.debug("done (PID=%d)", os.getpid())
+        print(acc)
+

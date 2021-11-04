@@ -13,7 +13,8 @@ from torch.utils.tensorboard import SummaryWriter
 torch.manual_seed(0)
 import time
 from time import localtime
-from src.samplenetl0 import SampleNet
+
+# from torchnet import meter
 
 # addpath('../')
 # sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir)))
@@ -36,12 +37,25 @@ def append_to_GLOBALS(key, value):
 
 # fmt: off
 def options(argv=None, parser=None):
-    if parser is None:
-        parser = argparse.ArgumentParser()
 
-    parser.add_argument('-o', '--outfile', required=True, type=str,
+
+    parser = argparse.ArgumentParser("SampleNet: Differentiable Point Cloud Sampling")
+
+    parser.add_argument("--skip-projection", action="store_true", help="Do not project points in training")
+
+    parser.add_argument("-in", "--num-in-points", type=int, default=1024, help="Number of input Points [default: 1024]")
+    parser.add_argument("-out", "--num-out-points", type=int, default=64, help="Number of output points [2, 1024] [default: 64]")
+    parser.add_argument("--bottleneck-size", type=int, default=128, help="bottleneck size [default: 128]")
+    parser.add_argument("--alpha", type=float, default=0.01, help="Simplification regularization loss weight [default: 0.01]")
+    parser.add_argument("--gamma", type=float, default=1, help="Lb constant regularization loss weight [default: 1]")
+    parser.add_argument("--delta", type=float, default=0, help="Lb linear regularization loss weight [default: 0]")
+    parser.add_argument("--lr", type=float, default=0.001,help="learning rate")
+    # projection arguments
+    parser.add_argument("-gs", "--projection-group-size", type=int, default=8, help='Neighborhood size in Soft Projection [default: 8]')
+    parser.add_argument("--lmbda", type=float, default=0.01, help="Projection regularization loss weight [default: 0.01]")
+    parser.add_argument('-o', '--outfile', type=str,
                         metavar='BASENAME', help='output filename (prefix)')  # the result: ${BASENAME}_model_best.pth
-    parser.add_argument('--datafolder', required=True, type=str, help='dataset folder')
+    parser.add_argument('--datafolder', default="car_hdf5_2048", type=str, help='dataset folder')
 
     # For testing
     parser.add_argument('--test', action='store_true',
@@ -55,19 +69,19 @@ def options(argv=None, parser=None):
 
     parser.add_argument('--loss-type', default=0, choices=[0, 1], type=int,
                         metavar='TYPE', help='Supervised (0) or Unsupervised (1)')
-    parser.add_argument('--sampler', required=True, choices=['fps', 'samplenet', 'random', 'none'], type=str,
+    parser.add_argument('--sampler', default="samplenet", choices=['fps', 'samplenet', 'random', 'none'], type=str,
                         help='Sampling method.')
 
-    parser.add_argument('--transfer-from', type=str,
+    parser.add_argument('--transfer-from', type=str, default="log/baseline/PCRNet1024_model_best.pth",
                         metavar='PATH', help='path to trained pcrnet')
     parser.add_argument('--train-pcrnet', action='store_true',
                         help='Allow PCRNet training.')
-    parser.add_argument('--train-samplenet', action='store_true',
+    parser.add_argument('--train-samplenet', action='store_true',default=True,
                         help='Allow SampleNet training.')
-
+    parser.add_argument('--gpu', type=str, default='0', help='specify gpu device [default: 0]')
     parser.add_argument('--num-sampled-clouds', choices=[1, 2], type=int, default=2,
                         help='Number of point clouds to sample (Source / Source + Template)')
-    parser.add_argument('--l0', type=float, default=0, help='loss for L0 regularization')
+    parser.add_argument('--sess', type=str, default="default", help='session')
 
     # settings for on training
     parser.add_argument('--workers', default=4, type=int,
@@ -86,23 +100,12 @@ def options(argv=None, parser=None):
                         metavar='PATH', help='path to pretrained model file (default: null (no-use))')
     parser.add_argument('--device', default='cuda:0', type=str,
                         metavar='DEVICE', help='use CUDA if available')
-    parser.add_argument('--gpu', default="0", type=str,
-                        metavar='DEVICE', help='use CUDA if available')
-    parser.add_argument('--sess', default='default', type=str, help='session name')
+
     args = parser.parse_args(argv)
 
     return args
 # fmt: on
 
-def batched_index_select(input, dim, index):
-    for ii in range(1, len(input.shape)):
-        if ii != dim:
-            index = index.unsqueeze(ii)
-    expanse = list(input.shape)
-    expanse[0] = -1
-    expanse[dim] = -1
-    index = index.expand(expanse)
-    return torch.gather(input, dim, index)
 
 def main(args, dbg=False):
     global GLOBALS
@@ -199,7 +202,7 @@ def train(args, trainset, testset, action):
 
         is_best = val_loss < min_loss
         min_loss = min(val_loss, min_loss)
-        writer.add_scalar('error', val_rotation_error, epoch)
+
         LOGGER.info(
             "epoch, %04d, train_loss=%f, train_rotation_error=%f, val_loss=%f, val_rotation_error=%f",
             epoch + 1,
@@ -256,7 +259,6 @@ class Action:
         self.TRAIN_SAMPLENET = args.train_samplenet
         self.TRAIN_PCRNET = args.train_pcrnet
         self.NUM_SAMPLED_CLOUDS = args.num_sampled_clouds
-        self.l0 = args.l0
 
     def create_model(self):
         # Create Task network and load pretrained feature weights if requested
@@ -318,8 +320,7 @@ class Action:
     def train_1(self, model, trainloader, optimizer, device, epoch):
         vloss = 0.0
         gloss = 0.0
-        a = []
-        loga = []
+
         count = 0
         for i, data in enumerate(tqdm(trainloader)):
             # Sample using one of the samplers:
@@ -328,9 +329,7 @@ class Action:
                     sampler_loss,
                     sampled_data,
                     sampler_loss_info,
-                ) = self.compute_samplenet_loss(model, data, device,epoch)
-                a.append(model.sampler.m.item())
-                loga.append(model.sampler.loga)
+                ) = self.compute_samplenet_loss(model, data, device)
                 simplification_loss = sampler_loss_info["simplification_loss"]
                 projection_loss = sampler_loss_info["projection_loss"]
             elif model.sampler is not None and model.sampler.name == "fps":
@@ -356,11 +355,9 @@ class Action:
             # print(
             #     f"data sample {i:3.0f}: simplification_loss={simplification_loss:.4f}, projection_loss={projection_loss:.4f}, chamfer_loss={chamfer_loss:.4f}, rotation_error={rotation_error:.4f}, norm_err={norm_err:.4f}, trans_err={trans_err:.4f}"
             # )
-            # if epoch < 50:
-            #     loss = pcrnet_loss
-            # else:
-            # # SampleNet loss is already factorized by ALPHA and LMBDA hyper parameters.
-            loss = pcrnet_loss  + model.sampler.loss * self.l0 + sampler_loss
+
+            # SampleNet loss is already factorized by ALPHA and LMBDA hyper parameters.
+            loss = pcrnet_loss + sampler_loss
 
             optimizer.zero_grad()
             loss.backward()
@@ -374,13 +371,8 @@ class Action:
             gloss += gloss1
             count += 1
 
-            model.sampler.k = torch.tensor(np.array(a).mean()).int()
-        writer.add_scalar('number', np.array(a).mean(), epoch)
-        writer.add_histogram('loga', torch.cat(loga, dim=-1).detach().cpu().numpy(), epoch)
         ave_vloss = float(vloss) / count
         ave_gloss = float(gloss) / count
-        if epoch % 40  == 0 and epoch> 50:
-            self.l0 = 1.5 * self.l0
         return ave_vloss, ave_gloss
 
     def eval_1(self, model, testloader, device, epoch):
@@ -402,7 +394,7 @@ class Action:
                         sampler_loss,
                         sampled_data,
                         sampler_loss_info,
-                    ) = self.compute_samplenet_loss(model, data, device,epoch)
+                    ) = self.compute_samplenet_loss(model, data, device)
                 elif model.sampler is not None and model.sampler.name == "fps":
                     sampled_data = self.non_learned_sampling(model, data, device)
                     sampler_loss = torch.tensor(0, dtype=torch.float32)
@@ -449,7 +441,7 @@ class Action:
                 # Sample using one of the samplers:
                 if model.sampler is not None and model.sampler.name == "samplenet":
                     _, sampled_data, _ = self.compute_samplenet_loss(
-                        model, data, device,epoch
+                        model, data, device
                     )
                 elif model.sampler is not None and (
                     model.sampler.name in ["fps", "random"]
@@ -510,7 +502,7 @@ class Action:
         p0 = p0.to(device)  # template
         p1 = p1.to(device)  # source
 
-        p1_samp = model.sampler(p1,epoch)
+        p1_samp = model.sampler(p1)
         if self.NUM_SAMPLED_CLOUDS == 1:
             sampled_data = (p0, p1_samp, igt)
         elif self.NUM_SAMPLED_CLOUDS == 2:  # Sample template point cloud as well
@@ -519,14 +511,14 @@ class Action:
 
         return sampled_data
 
-    def compute_samplenet_loss(self, model, data, device,epoch):
+    def compute_samplenet_loss(self, model, data, device):
         """Sample point clouds using SampleNet and compute sampling associated losses."""
 
         p0, p1, igt = data
         p0 = p0.to(device)  # template
         p1 = p1.to(device)  # source
 
-        p1_simplified, p1_projected = model.sampler(p1,epoch)
+        p1_simplified, p1_projected = model.sampler(p1)
 
         # Sampling loss
         p1_simplification_loss = model.sampler.get_simplification_loss(
@@ -538,7 +530,7 @@ class Action:
             sampled_data = (p0, p1_projected, igt)
 
         elif self.NUM_SAMPLED_CLOUDS == 2:  # Sample template point cloud as well
-            p0_simplified, p0_projected = model.sampler(p0,epoch)
+            p0_simplified, p0_projected = model.sampler(p0)
             p0_simplification_loss = model.sampler.get_simplification_loss(
                 p0, p0_simplified, self.NUM_OUT_POINTS, self.GAMMA, self.DELTA
             )
@@ -661,24 +653,45 @@ def get_datasets(args):
 
 if __name__ == "__main__":
 
-    from src import sputils
-    ARGS = options(parser=sputils.get_parser())
+    # from src import sputils
+
+    ARGS = options()
     os.environ["CUDA_VISIBLE_DEVICES"] = ARGS.gpu
     from data.modelnet_loader_torch import ModelNetCls
     from models import pcrnet
     from src import ChamferDistance, FPSSampler, RandomSampler
-
+    from src.samplenet import SampleNet
     from src.pctransforms import OnUnitCube, PointcloudToTensor
     from src.qdataset import QuaternionFixedDataset, QuaternionTransform, rad_to_deg
 
-    current_time = time.strftime('%d_%H:%M:%S', localtime())
-    writer = SummaryWriter(log_dir='runs/' + current_time+ARGS.sess, flush_secs=30)
-    logging.basicConfig(
-        level=logging.DEBUG,
-        format="%(levelname)s:%(name)s, %(asctime)s, %(message)s",
-        filename=f"{ARGS.outfile}.log",
-    )
-    LOGGER.debug("Training (PID=%d), %s", os.getpid(), ARGS)
+    torch.manual_seed(0)
 
-    _ = main(ARGS)
-    # LOGGER.debug("done (PID=%d)", os.getpid())
+    if ARGS.test:
+        nums = [8,16,32,64]
+        sess = ARGS.sess
+        for num in nums:
+            ARGS.num_out_points = num
+            ARGS.pretrained = "log/samplenet_g{}_model_best.pth".format(ARGS.num_out_points)
+            res = main(ARGS)
+            print(res)
+    else:
+        acc = []
+        nums = [8,16,32,64]
+        sess = ARGS.sess
+        for num in nums:
+            ARGS.num_out_points = num
+            ARGS.outfile = "log/samplenet_g{}".format(ARGS.num_out_points)
+            ARGS.sess = sess + "_out{}".format(ARGS.num_out_points)
+            print(ARGS)
+            logging.basicConfig(
+                level=logging.DEBUG,
+                format="%(levelname)s:%(name)s, %(asctime)s, %(message)s",
+                filename=f"{ARGS.outfile}.log", )
+
+            LOGGER.debug("Training (PID=%d), %s", os.getpid(), ARGS)
+            res = main(ARGS)
+            acc.append(res)
+            print(acc)
+            LOGGER.debug("done (PID=%d)", os.getpid())
+        print(acc)
+
