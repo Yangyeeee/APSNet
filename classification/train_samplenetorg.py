@@ -14,12 +14,16 @@ from tqdm import tqdm
 import sys
 import provider
 import importlib
-import shutil
 import time
 from time import localtime
 from torch.utils.tensorboard import SummaryWriter
 
 from data.modelnet_loader_torch import ModelNetCls
+import numpy as np
+import matplotlib.pyplot as plt
+import random
+from src.fps import FPSSampler
+from src.random_sampling import RandomSampler
 
 import torchvision
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -29,27 +33,28 @@ sys.path.append(os.path.join(ROOT_DIR, 'models'))
 
 def parse_args():
     '''PARAMETERS'''
-    parser = argparse.ArgumentParser('PointNet')
+    parser = argparse.ArgumentParser('SSN')
     parser.add_argument('-b','--batch_size', type=int, default=32, help='batch size in training [default: 32]')
     parser.add_argument('--model', default='pointnet_cls', help='model name [default: pointnet_cls]')
-    parser.add_argument('--epoch',  default=200, type=int, help='number of epoch in training [default: 200]')
+    parser.add_argument('--epoch',  default=400, type=int, help='number of epoch in training [default: 200]')
     parser.add_argument('--lr', default=0.01, type=float, help='learning rate in training [default: 0.01]')
     parser.add_argument('--gpu', type=str, default='0', help='specify gpu device [default: 0]')
-    parser.add_argument('--num_point', type=int, default=1024, help='Point Number [default: 1024]')
-    parser.add_argument('--optimizer', type=str, default='Adam', help='optimizer for training [default: Adam]')
-    parser.add_argument('--log_dir', type=str, default=None, help='experiment root')
+    parser.add_argument('--optimizer', type=str, default='adam', help='optimizer for training [sgd or adam default: adam]')
+    parser.add_argument('--log_dir', type=str, default="pointnet11", help='experiment root')
     parser.add_argument('--sess', type=str, default="default", help='session')
-    parser.add_argument('--decay_rate', type=float, default=1e-4, help='decay rate [default: 1e-4]')
+    parser.add_argument('--weight_decay', type=float, default=1e-4, help='decay rate [default: 1e-4]')
+    parser.add_argument('--decay_rate', type=float, default=0.7, help='decay rate [default: 0.7]')
     parser.add_argument('--normal', action='store_true', default=False, help='Whether to use normal information [default: False]')
+    parser.add_argument('--joint', action='store_true', default=False, help='joint training.')
 
-    parser.add_argument('--sampler', required=True, default="samplenet", choices=['fps', 'samplenet', 'random', 'none'], type=str, help='Sampling method.')
+    parser.add_argument('--sampler', default="samplenet", choices=['fps', 'samplenet', 'random', 'none'], type=str, help='Sampling method.')
     parser.add_argument('--train-samplenet', action='store_true', default=True,help='Allow SampleNet training.')
     parser.add_argument('--train_cls', action='store_true', default=False, help='Allow calssifier training.')
     parser.add_argument('--num_out_points', type=int, default=32, help='sampled Point Number [default: 32]')
     parser.add_argument('--projection_group_size', type=int, default=8, help='projection_group_size')
     parser.add_argument('--bottleneck_size', type=int, default=128, help='bottleneck_size')
-    parser.add_argument('--a', default=0.01, type=float, help='alpha')
-    parser.add_argument('--b', default=0.01, type=float, help='lmbda')
+    parser.add_argument('--alpha', default=30, type=float, help='alpha')
+    parser.add_argument('--lmbda', default=1, type=float, help='lmbda')
     parser.add_argument('--datafolder',  type=str, help='dataset folder')
     parser.add_argument("-in", "--num-in-points", type=int, default=1024, help="Number of input Points [default: 1024]")
     # For testing
@@ -152,13 +157,13 @@ def main(args):
     log_dir.mkdir(exist_ok=True)
 
     '''LOG'''
-    args = parse_args()
+    # args = parse_args()
     current_time = time.strftime('%d_%H:%M:%S', localtime())
     writer = SummaryWriter(log_dir='runs/' + current_time+"_" + args.sess, flush_secs=30)
     logger = logging.getLogger("Model")
     logger.setLevel(logging.INFO)
     formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-    file_handler = logging.FileHandler('%s/%s.txt' % (log_dir, args.model))
+    file_handler = logging.FileHandler('%s/%s_%s.txt' % (log_dir,current_time, args.sess))
     file_handler.setLevel(logging.INFO)
     file_handler.setFormatter(formatter)
     logger.addHandler(file_handler)
@@ -239,18 +244,18 @@ def main(args):
     else:
         sampler = None
 
-    if args.optimizer == 'Adam':
+    if args.optimizer == 'adam':
         optimizer = torch.optim.Adam(
             sampler.parameters(),
             lr=args.lr,
             betas=(0.9, 0.999),
             eps=1e-08,
-            weight_decay=args.decay_rate
+            weight_decay=args.weight_decay
         )
     else:
-        optimizer = torch.optim.SGD(sampler.parameters(), lr=0.01, momentum=0.9)
+        optimizer = torch.optim.SGD(sampler.parameters(), lr=args.lr, momentum=0.9)
 
-    scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=20, gamma=0.7)
+    scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=20, gamma=args.decay_rate)
     global_epoch = 0
     global_step = 0
     best_instance_acc = 0.0
@@ -265,15 +270,26 @@ def main(args):
         p0 = data
         p0_simplified, p0_projected = sampler(p0)
 
-        # Sampling loss
-        p0_simplification_loss = sampler.get_simplification_loss(p0, p0_simplified, 64, 1, 0)
+        if  not args.joint:
+            p0_simplification_loss = sampler.get_simplification_loss(p0, p0_simplified, args.num_out_points, 1, 0)
+        else:
+            if p0_simplified.shape[1] <= -1:
+                p0_simplification_loss = sampler.get_simplification_loss(p0, p0_simplified, args.num_out_points, 1, 0)
+            else:
+                d = p0_simplified.shape[1]
+                p0_simplification_loss = 0
+                i = 0
+                while(d >= 8):
+                    p0_simplification_loss += sampler.get_simplification_loss(p0, p0_simplified[:, :int(d), :], args.num_out_points, 1, 0)
+                    d /= 2
+                    i+=1
 
         simplification_loss = p0_simplification_loss
         sampled_data = (p0, p0_projected)
         # Projection loss
         projection_loss = sampler.get_projection_loss()
 
-        samplenet_loss = args.a * simplification_loss + args.b * projection_loss
+        samplenet_loss = args.alpha * simplification_loss + args.lmbda * projection_loss
 
         samplenet_loss_info = {
             "simplification_loss": simplification_loss,
@@ -290,9 +306,9 @@ def main(args):
         for batch_id, data in tqdm(enumerate(trainDataLoader, 0), total=len(trainDataLoader), smoothing=0.9):
             points, target = data
             points = points.data.numpy()
-            points = provider.random_point_dropout(points)
-            points[:,:, 0:3] = provider.random_scale_point_cloud(points[:,:, 0:3])
-            points[:,:, 0:3] = provider.shift_point_cloud(points[:,:, 0:3])
+            # points = provider.random_point_dropout(points)
+            # points[:,:, 0:3] = provider.random_scale_point_cloud(points[:,:, 0:3])
+            # points[:,:, 0:3] = provider.shift_point_cloud(points[:,:, 0:3])
             points = torch.Tensor(points)
             target = target[:, 0]
 
@@ -321,6 +337,7 @@ def main(args):
         writer.add_scalar('acc/train', train_instance_acc, epoch)
         writer.add_scalar('loss/loss_task', np.mean(loss_task), epoch)
         writer.add_scalar('loss/loss_simple', np.mean(loss_simple), epoch)
+        writer.add_scalar('loss/train_loss', np.mean(loss_task) + np.mean(loss_simple) , epoch)
 
         with torch.no_grad():
             instance_acc, class_acc,loss = test(classifier.eval(),sampler, testDataLoader,criterion)
@@ -339,13 +356,15 @@ def main(args):
 
             if (instance_acc >= best_instance_acc):
                 logger.info('Save model...')
-                savepath = str(checkpoints_dir) + '/best_samplenet.pth'
+                savepath = experiment_dir.joinpath(args.sess)
+                savepath.mkdir(exist_ok=True)
+                savepath = savepath.joinpath('best_lstm.pth')
                 log_string('Saving at %s'% savepath)
                 state = {
                     'epoch': best_epoch,
                     'instance_acc': instance_acc,
                     'class_acc': class_acc,
-                    'model_state_dict': classifier.state_dict(),
+                    'model_state_dict': sampler.state_dict(),
                     'optimizer_state_dict': optimizer.state_dict(),
                 }
                 torch.save(state, savepath)
@@ -353,13 +372,36 @@ def main(args):
 
     logger.info('End of training...')
     writer.close()
+    return best_instance_acc
+
+def set_random_seed(seed):
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
 
 if __name__ == '__main__':
     args = parse_args()
     os.environ["CUDA_VISIBLE_DEVICES"] = args.gpu
-    from src import ChamferDistance, FPSSampler, RandomSampler
-    from src import sputils
+    set_random_seed(123)
     from src.pctransforms import OnUnitCube, PointcloudToTensor
-    from src.qdataset import QuaternionFixedDataset, QuaternionTransform, rad_to_deg
     from src.samplenet import SampleNet
-    main(args)
+    acc = []
+    nums = [8,16,32,64,128]
+    sess = args.sess
+    for num in nums:
+        args.num_out_points = num
+        args.sess = "samplenet_out{}".format(args.num_out_points)
+        print(args)
+        res = main(args)
+        print(args)
+        acc.append(res)
+        print(acc)
+    # b = [i for i in range(len(nums))]
+    # plt.subplot(1, 1, 1)
+    # plt.plot(b, acc, '-or')
+    # # plt.legend(['Texas']),,128,256,512,256,512
+    # plt.ylabel('Accuracy', fontsize=15, labelpad=15)
+    # plt.xlabel('Number of points', fontsize=15, labelpad=15)
+    # plt.savefig("./lstm.png", format="png", dpi=300)
+    print(acc)

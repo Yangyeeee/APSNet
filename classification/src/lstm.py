@@ -9,18 +9,19 @@ import torch.nn.functional as F
 from knn_cuda import KNN
 
 
-# try:
-#     from .soft_projection import SoftProjection
-#     from .chamfer_distance import ChamferDistance
-#     from . import sputils
-# except (ModuleNotFoundError, ImportError) as err:
-#     print(err.__repr__())
-#     from soft_projection import SoftProjection
-#     from chamfer_distance import ChamferDistance
-#     import sputils
+try:
+    # from .soft_projection import SoftProjection
+    # from .chamfer_distance import ChamferDistance
+    from . import sputils
+except (ModuleNotFoundError, ImportError) as err:
+    print(err.__repr__())
+    # from soft_projection import SoftProjection
+    # from chamfer_distance import ChamferDistance
+    import sputils
 
 from .soft_projection import SoftProjection
 from . import sputils
+
 def square_distance(src, dst):
     """
     Calculate Euclid distance between each two points.
@@ -43,6 +44,9 @@ def square_distance(src, dst):
     dist += torch.sum(src ** 2, -1).view(B, N, 1)
     dist += torch.sum(dst ** 2, -1).view(B, 1, M)
     return dist
+# Truncated backpropagation
+def detach(states):
+    return [state.detach() for state in states]
 
 class SampleNet(nn.Module):
     def __init__(
@@ -57,10 +61,12 @@ class SampleNet(nn.Module):
         output_shape="bcn",
         complete_fps=True,
         skip_projection=False,
+        layer=2,
     ):
         super().__init__()
         self.num_out_points = num_out_points
         self.name = "samplenet"
+        self.layer = layer
 
         self.conv1 = torch.nn.Conv1d(3, 64, 1)
         self.conv2 = torch.nn.Conv1d(64, 64, 1)
@@ -68,11 +74,22 @@ class SampleNet(nn.Module):
         self.conv4 = torch.nn.Conv1d(64, 128, 1)
         self.conv5 = torch.nn.Conv1d(128, bottleneck_size, 1)
 
+        #
+        self.conv6 = torch.nn.Conv1d(128, 128, 1)  #r
+        self.conv7 = torch.nn.Conv1d(128, num_out_points, 1) #p
+        self.lstm = nn.LSTM(3, 128, self.layer, batch_first=True)
+        # self.conv8 = torch.nn.Conv1d(128, 256, 1)
+        # self.conv9 = torch.nn.Conv1d(256, 256, 1)
+        # self.conv10 = torch.nn.Conv1d(256, 3, 1)
+
+
         self.bn1 = nn.BatchNorm1d(64)
         self.bn2 = nn.BatchNorm1d(64)
         self.bn3 = nn.BatchNorm1d(64)
         self.bn4 = nn.BatchNorm1d(128)
         self.bn5 = nn.BatchNorm1d(bottleneck_size)
+        # self.bn4 = nn.BatchNorm1d(128)
+        # self.bn5 = nn.BatchNorm1d(bottleneck_size)
 
         self.fc1 = nn.Linear(bottleneck_size, 256)
         self.fc2 = nn.Linear(256, 256)
@@ -89,6 +106,7 @@ class SampleNet(nn.Module):
         )
         self.skip_projection = skip_projection
         self.complete_fps = complete_fps
+        self.p = 0
 
         # input / output shapes
         if input_shape not in ["bcn", "bnc"]:
@@ -103,8 +121,12 @@ class SampleNet(nn.Module):
             warnings.warn("SampleNet: input_shape is different to output_shape.")
         self.input_shape = input_shape
         self.output_shape = output_shape
+        self.loss = 0
+        self.t = 0#torch.nn.Parameter(torch.tensor(1,requires_grad=True, dtype=torch.float32))
+        self.att = []
 
     def forward(self, x: torch.Tensor):
+        self.att = []
         # x shape should be B x 3 x N
         if self.input_shape == "bnc":
             x = x.permute(0, 2, 1)
@@ -116,20 +138,55 @@ class SampleNet(nn.Module):
         y = F.relu(self.bn2(self.conv2(y)))
         y = F.relu(self.bn3(self.conv3(y)))
         y = F.relu(self.bn4(self.conv4(y)))
-        y = F.relu(self.bn5(self.conv5(y)))  # Batch x 128 x NumInPoints
+        y1 = F.relu(self.bn5(self.conv5(y)))  # Batch x 128 x 1024
 
-        # Max pooling for global feature vector:
-        y = torch.max(y, 2)[0]  # Batch x 128
+        y = torch.max(y1, 2)[0]  # Batch x 128
 
-        y = F.relu(self.bn_fc1(self.fc1(y)))
-        y = F.relu(self.bn_fc2(self.fc2(y)))
-        y = F.relu(self.bn_fc3(self.fc3(y)))
-        y = self.fc4(y)
+        # states = (torch.zeros(self.layer, x.shape[0], 128).to(x.device),
+        #           torch.zeros(self.layer, x.shape[0], 128).to(x.device))
+        states = (torch.zeros(self.layer, x.shape[0], 128).to(x.device),
+                  y.unsqueeze(0).repeat(self.layer,1,1))
+        inputs = torch.zeros( x.shape[0],1, 3).to(x.device)
+        res = []
 
-        y = y.view(-1, 3, self.num_out_points)
+        # t = torch.max(self.t**2, torch.tensor(1e-4).to(y.device))
+        if self.training:
+            num_out_points = self.num_out_points
+        else:
+            num_out_points = self.num_out_points
+        for i in range(num_out_points):
+            # states = detach(states)
+            outputs, states = self.lstm(inputs, states)  #Bx1x128
+            p = torch.bmm(outputs,y1)
+            p = F.softmax(p/self.t,dim=-1)
+            inputs = torch.bmm(x,p.permute(0,2,1))
+            res.append(inputs)
+            inputs = inputs.permute(0,2,1)
+            self.att.append(p)
+        self.att = torch.cat(self.att,dim=1)
+
+
+        # r = self.conv6(y1)      #Batch x 128 x 1024
+        # p = self.conv7(y1)     #Batch x num_out_points x 1024
+        # p = F.softmax(p,dim=-1)
+        # y = torch.bmm(x,p.permute(0,2,1))
+
+        # y = torch.bmm(r, p.permute(0, 2, 1))
+        # y = F.relu(self.conv8(y))
+        # y = F.relu(self.conv9(y))
+        # y = self.conv10(y)
+        # # Max pooling for global feature vector:
+        # y = torch.max(y1, 2)[0]  # Batch x 128
+        #
+        # y = F.relu(self.bn_fc1(self.fc1(y)))
+        # y = F.relu(self.bn_fc2(self.fc2(y)))
+        # y = F.relu(self.bn_fc3(self.fc3(y)))
+        # y = self.fc4(y)
+        #
+        # y = y.view(-1, 3, self.num_out_points)
 
         # Simplified points
-        simp = y
+        simp = torch.cat(res,dim=-1)
         match = None
         proj = None
 
@@ -139,10 +196,14 @@ class SampleNet(nn.Module):
                 proj = self.project(point_cloud=x, query_cloud=y)
             else:
                 proj = simp
+            # t = torch.bmm(p,p.permute(0,2,1))
+            # ide = torch.eye(t.shape[-1]).unsqueeze(0).to(t.device)
+            # self.t = t
+            # self.loss = (t - ide).pow(2).sum()
 
         # Matched points
         else:  # Inference
-            # Retrieve nearest neighbor indices
+            # # Retrieve nearest neighbor indices
             num = 128
             if simp.shape[-1] > num:
                 _, idx = KNN(1, transpose_mode=False)(x.contiguous(), simp[:,:,num:].contiguous())
@@ -199,8 +260,8 @@ class SampleNet(nn.Module):
     # When evaluating the model, we'd only want to asses the task loss.
 
     def get_simplification_loss(self, ref_pc, samp_pc, pc_size, gamma=1, delta=0):
-        if self.skip_projection or not self.training:
-            return torch.tensor(0).to(ref_pc)
+        # if self.skip_projection or not self.training:
+        #     return torch.tensor(0).to(ref_pc)
         # ref_pc and samp_pc are B x N x 3 matrices
         # cost_p1_p2, cost_p2_p1 = ChamferDistance()(samp_pc, ref_pc)
         cost_p2_p1 = square_distance(ref_pc, samp_pc).min(-1)[0]

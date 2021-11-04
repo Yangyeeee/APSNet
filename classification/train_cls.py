@@ -76,7 +76,7 @@ def get_datasets(args):
             download=False,
             cinfo=None,
             folder=args.datafolder,
-            include_shapes=True,
+            include_shapes=False,
         )
         trainset = None
         testset = testdata
@@ -105,6 +105,66 @@ def test(model, loader,criterion, num_class=40):
     class_acc = np.mean(class_acc[:,2])
     instance_acc = np.mean(mean_correct)
     return instance_acc, class_acc,loss
+
+def eval(args):
+    def log_string(str):
+        logger.info(str)
+        print(str)
+
+    '''CREATE DIR'''
+    timestr = str(datetime.datetime.now().strftime('%Y-%m-%d_%H-%M'))
+    experiment_dir = Path('./log/')
+    experiment_dir.mkdir(exist_ok=True)
+    # experiment_dir = experiment_dir.joinpath('classification')
+    # experiment_dir.mkdir(exist_ok=True)
+    if args.log_dir is None:
+        experiment_dir = experiment_dir.joinpath(timestr)
+    else:
+        experiment_dir = experiment_dir.joinpath(args.log_dir)
+    experiment_dir.mkdir(exist_ok=True)
+    checkpoints_dir = experiment_dir.joinpath('checkpoints/')
+    checkpoints_dir.mkdir(exist_ok=True)
+    log_dir = experiment_dir.joinpath('logs/')
+    log_dir.mkdir(exist_ok=True)
+
+    '''LOG'''
+    #args = parse_args()
+    logger = logging.getLogger("Model")
+    logger.setLevel(logging.INFO)
+    formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+    file_handler = logging.FileHandler('%s/%s.txt' % (log_dir, args.model))
+    file_handler.setLevel(logging.INFO)
+    file_handler.setFormatter(formatter)
+    logger.addHandler(file_handler)
+    log_string('PARAMETER ...')
+    log_string(args)
+
+    '''DATA LOADING'''
+    log_string('Load dataset ...')
+    args.datafolder = 'modelnet40_ply_hdf5_2048'
+
+    _, testset = get_datasets(args)
+    # dataloader
+    testDataLoader = torch.utils.data.DataLoader(testset, batch_size=args.batch_size, shuffle=False, num_workers=4)
+
+    '''MODEL LOADING'''
+    num_class = 40
+    MODEL = importlib.import_module(args.model)
+    # shutil.copy('./models/%s.py' % args.model, str(experiment_dir))
+    # shutil.copy('./models/pointnet_util.py', str(experiment_dir))
+
+    classifier = MODEL.get_model(num_class, normal_channel=args.normal).cuda()
+    criterion = MODEL.get_loss().cuda()
+
+
+    checkpoint = torch.load(str(experiment_dir) + '/checkpoints/best_model.pth')
+    classifier.load_state_dict(checkpoint['model_state_dict'])
+    log_string('Use pretrain model')
+    with torch.no_grad():
+        instance_acc, class_acc, loss = test(classifier.eval(), testDataLoader, criterion)
+        log_string('Test Instance Accuracy: %f, Class Accuracy: %f' % (instance_acc, class_acc))
+
+
 
 
 def main(args):
@@ -187,7 +247,7 @@ def main(args):
             weight_decay=args.decay_rate
         )
     else:
-        optimizer = torch.optim.SGD(classifier.parameters(), lr=0.01, momentum=0.9)
+        optimizer = torch.optim.SGD(classifier.parameters(), lr=args.lr, momentum=0.9)
 
     scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=20, gamma=0.7)
     global_epoch = 0
@@ -205,6 +265,9 @@ def main(args):
         for batch_id, data in tqdm(enumerate(trainDataLoader, 0), total=len(trainDataLoader), smoothing=0.9):
             points, target = data
             points = points.data.numpy()
+            # Augment batched point clouds by rotation and jittering
+            # rotated_data = provider.rotate_point_cloud(points)
+            # points = provider.jitter_point_cloud(rotated_data)
             points = provider.random_point_dropout(points)
             points[:,:, 0:3] = provider.random_scale_point_cloud(points[:,:, 0:3])
             points[:,:, 0:3] = provider.shift_point_cloud(points[:,:, 0:3])
@@ -267,4 +330,8 @@ if __name__ == '__main__':
     '''HYPER PARAMETER'''
     os.environ["CUDA_VISIBLE_DEVICES"] = args.gpu
     from src.pctransforms import OnUnitCube, PointcloudToTensor
-    main(args)
+    if args.test != 1:
+        main(args)
+    else:
+        eval(args)
+
