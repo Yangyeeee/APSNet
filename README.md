@@ -60,9 +60,4 @@ To train SampleNet (with sample size 64 in this example), using an existing PCRN
 python main.py -o log/SAMPLENET64 --datafolder car_hdf5_2048 --transfer-from log/baseline/PCRNet1024_model_best.pth --sampler samplenet --train-samplenet --num-out-points 64
 
 
-## Evaluate SampleNet
-To evaluate PCRNet with SampleNet's sampled points (with sample size 64 in this example), use:
-python main.py -o log/SAMPLENET64  --datafolder car_hdf5_2048 --pretrained log/SAMPLENET64_model_best.pth --sampler samplenet --num-out-points 64 --test
-
-
 ```
