@@ -12,7 +12,7 @@ conda install cudatoolkit=10.0.130
 conda install cudnn=7.6.0=cuda10.0_0
 ```
 
-#### 3. Install requirments
+### 3. Install requirments
 ```bash
 pip install -r requirement.txt
 pip install -r req.txt
