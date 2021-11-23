@@ -1,15 +1,18 @@
+# APSNet: Attention Based Point Cloud Sampling
+
 ## Installation
 
-### update gcc to 7.0
+### 1. Update gcc to 7.0
 
-### create env
+### 2. Create env
 
 ```bash
 conda create --name my_env python=3.7
 conda install cudatoolkit=10.0.130
 conda install cudnn=7.6.0=cuda10.0_0
 ```
-#### install requirments
+
+#### 3. Install requirments
 ```bash
 pip install -r requirement.txt
 pip install -r req.txt
@@ -18,7 +21,7 @@ pip install --upgrade https://github.com/unlimblue/KNN_CUDA/releases/download/0.
 
 ## Usage
 
-### Classification
+### 1. Classification
 ```
 ## train apsnet 
 python train_aps.py  --gpu 4 --epoch 400 -b 128 --num_out_points 32
@@ -28,7 +31,7 @@ python train_cls.py --model pointnet_cls --log_dir pointnet --gpu 1  -b 128 --lr
 
 ```
 
-### Reconstruction
+### 2. Reconstruction
 ```
 ## train apsnet 
 python train_aps.py  --gpu 4 --epoch 400 -b 128 --num_out_points 32
@@ -39,7 +42,7 @@ python train_ae.py --model point_ae --log_dir pointae --gpu 1  -b 128 --lr 0.000
 ```
 
 
-### Registration
+### 3. Registration
 ```
 ## Data preparation
 Create the 'car' dataset (ModelNet40 data will automatically be downloaded to `data/modelnet40_ply_hdf5_2048` if needed) and log directories:
