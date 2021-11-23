@@ -37,7 +37,7 @@ def parse_args():
     parser.add_argument('--gpu', type=str, default='0', help='specify gpu device [default: 0]')
     parser.add_argument('--num_point', type=int, default=1024, help='Point Number [default: 1024]')
     parser.add_argument('--optimizer', type=str, default='Adam', help='optimizer for training [default: Adam]')
-    parser.add_argument('--log_dir', type=str, default=None, help='experiment root')
+    parser.add_argument('--log_dir', type=str, default="pointnet", help='experiment root')
     parser.add_argument('--sess', type=str, default="default", help='session')
     parser.add_argument('--decay_rate', type=float, default=1e-4, help='decay rate [default: 1e-4]')
     parser.add_argument('--normal', action='store_true', default=False, help='Whether to use normal information [default: False]')
@@ -50,37 +50,23 @@ def parse_args():
 def get_datasets(args):
     transforms = torchvision.transforms.Compose([PointcloudToTensor(), OnUnitCube()])
 
-    if not args.test:
-        traindata = ModelNetCls(
-            args.num_in_points,
-            transforms=transforms,
-            train=True,
-            download=True,
-            folder=args.datafolder,
-        )
-        testdata = ModelNetCls(
-            args.num_in_points,
-            transforms=transforms,
-            train=False,
-            download=False,
-            folder=args.datafolder,
-        )
+    traindata = ModelNetCls(
+        args.num_in_points,
+        transforms=transforms,
+        train=True,
+        download=True,
+        folder=args.datafolder,
+    )
+    testdata = ModelNetCls(
+        args.num_in_points,
+        transforms=transforms,
+        train=False,
+        download=False,
+        folder=args.datafolder,
+    )
 
-        trainset = traindata
-        testset = testdata
-    else:
-        testdata = ModelNetCls(
-            args.num_in_points,
-            transforms=transforms,
-            train=False,
-            download=False,
-            cinfo=None,
-            folder=args.datafolder,
-            include_shapes=False,
-        )
-        trainset = None
-        testset = testdata
-
+    trainset = traindata
+    testset = testdata
     return trainset, testset
 
 def test(model, loader,criterion, num_class=40):
@@ -106,67 +92,6 @@ def test(model, loader,criterion, num_class=40):
     instance_acc = np.mean(mean_correct)
     return instance_acc, class_acc,loss
 
-def eval(args):
-    def log_string(str):
-        logger.info(str)
-        print(str)
-
-    '''CREATE DIR'''
-    timestr = str(datetime.datetime.now().strftime('%Y-%m-%d_%H-%M'))
-    experiment_dir = Path('./log/')
-    experiment_dir.mkdir(exist_ok=True)
-    # experiment_dir = experiment_dir.joinpath('classification')
-    # experiment_dir.mkdir(exist_ok=True)
-    if args.log_dir is None:
-        experiment_dir = experiment_dir.joinpath(timestr)
-    else:
-        experiment_dir = experiment_dir.joinpath(args.log_dir)
-    experiment_dir.mkdir(exist_ok=True)
-    checkpoints_dir = experiment_dir.joinpath('checkpoints/')
-    checkpoints_dir.mkdir(exist_ok=True)
-    log_dir = experiment_dir.joinpath('logs/')
-    log_dir.mkdir(exist_ok=True)
-
-    '''LOG'''
-    #args = parse_args()
-    logger = logging.getLogger("Model")
-    logger.setLevel(logging.INFO)
-    formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-    file_handler = logging.FileHandler('%s/%s.txt' % (log_dir, args.model))
-    file_handler.setLevel(logging.INFO)
-    file_handler.setFormatter(formatter)
-    logger.addHandler(file_handler)
-    log_string('PARAMETER ...')
-    log_string(args)
-
-    '''DATA LOADING'''
-    log_string('Load dataset ...')
-    args.datafolder = 'modelnet40_ply_hdf5_2048'
-
-    _, testset = get_datasets(args)
-    # dataloader
-    testDataLoader = torch.utils.data.DataLoader(testset, batch_size=args.batch_size, shuffle=False, num_workers=4)
-
-    '''MODEL LOADING'''
-    num_class = 40
-    MODEL = importlib.import_module(args.model)
-    # shutil.copy('./models/%s.py' % args.model, str(experiment_dir))
-    # shutil.copy('./models/pointnet_util.py', str(experiment_dir))
-
-    classifier = MODEL.get_model(num_class, normal_channel=args.normal).cuda()
-    criterion = MODEL.get_loss().cuda()
-
-
-    checkpoint = torch.load(str(experiment_dir) + '/checkpoints/best_model.pth')
-    classifier.load_state_dict(checkpoint['model_state_dict'])
-    log_string('Use pretrain model')
-    with torch.no_grad():
-        instance_acc, class_acc, loss = test(classifier.eval(), testDataLoader, criterion)
-        log_string('Test Instance Accuracy: %f, Class Accuracy: %f' % (instance_acc, class_acc))
-
-
-
-
 def main(args):
     def log_string(str):
         logger.info(str)
@@ -176,8 +101,6 @@ def main(args):
     timestr = str(datetime.datetime.now().strftime('%Y-%m-%d_%H-%M'))
     experiment_dir = Path('./log/')
     experiment_dir.mkdir(exist_ok=True)
-    # experiment_dir = experiment_dir.joinpath('classification')
-    # experiment_dir.mkdir(exist_ok=True)
     if args.log_dir is None:
         experiment_dir = experiment_dir.joinpath(timestr)
     else:
@@ -211,14 +134,6 @@ def main(args):
     testDataLoader = torch.utils.data.DataLoader(testset, batch_size=args.batch_size, shuffle=False, num_workers=4)
     trainDataLoader = torch.utils.data.DataLoader(trainset, batch_size=args.batch_size, shuffle=True, num_workers=4)
 
-
-    # TRAIN_DATASET = ModelNetDataLoader(root=DATA_PATH, npoint=args.num_point, split='train',
-    #                                                  normal_channel=args.normal)
-    # TEST_DATASET = ModelNetDataLoader(root=DATA_PATH, npoint=args.num_point, split='test',
-    #                                                 normal_channel=args.normal)
-    # trainDataLoader = torch.utils.data.DataLoader(TRAIN_DATASET, batch_size=args.batch_size, shuffle=True, num_workers=4)
-    # testDataLoader = torch.utils.data.DataLoader(TEST_DATASET, batch_size=args.batch_size, shuffle=False, num_workers=4)
-
     '''MODEL LOADING'''
     num_class = 40
     MODEL = importlib.import_module(args.model)
@@ -227,17 +142,8 @@ def main(args):
 
     classifier = MODEL.get_model(num_class, normal_channel=args.normal).cuda()
     criterion = MODEL.get_loss().cuda()
-    #
-    # try:
-    #     checkpoint = torch.load(str(experiment_dir) + '/checkpoints/best_model.pth')
-    #     start_epoch = checkpoint['epoch']
-    #     classifier.load_state_dict(checkpoint['model_state_dict'])
-    #     log_string('Use pretrain model')
-    # except:
-    #     log_string('No existing model, starting training from scratch...')
+
     start_epoch = 0
-
-
     if args.optimizer == 'Adam':
         optimizer = torch.optim.Adam(
             classifier.parameters(),
@@ -330,8 +236,5 @@ if __name__ == '__main__':
     '''HYPER PARAMETER'''
     os.environ["CUDA_VISIBLE_DEVICES"] = args.gpu
     from src.pctransforms import OnUnitCube, PointcloudToTensor
-    if args.test != 1:
-        main(args)
-    else:
-        eval(args)
+    main(args)
 

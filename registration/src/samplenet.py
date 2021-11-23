@@ -9,16 +9,32 @@ import torch.nn.functional as F
 from knn_cuda import KNN
 
 
-try:
-    from .soft_projection import SoftProjection
-    from .chamfer_distance import ChamferDistance
-    from . import sputils
-except (ModuleNotFoundError, ImportError) as err:
-    print(err.__repr__())
-    from soft_projection import SoftProjection
-    from chamfer_distance import ChamferDistance
-    import sputils
 
+
+from .soft_projection import SoftProjection
+from . import sputils
+def square_distance(src, dst):
+    """
+    Calculate Euclid distance between each two points.
+
+    src^T * dst = xn * xm + yn * ym + zn * zm;
+    sum(src^2, dim=-1) = xn*xn + yn*yn + zn*zn;
+    sum(dst^2, dim=-1) = xm*xm + ym*ym + zm*zm;
+    dist = (xn - xm)^2 + (yn - ym)^2 + (zn - zm)^2
+         = sum(src**2,dim=-1)+sum(dst**2,dim=-1)-2*src^T*dst
+
+    Input:
+        src: source points, [B, N, C]
+        dst: target points, [B, M, C]
+    Output:
+        dist: per-point square distance, [B, N, M]
+    """
+    B, N, _ = src.shape
+    _, M, _ = dst.shape
+    dist = -2 * torch.matmul(src, dst.permute(0, 2, 1))
+    dist += torch.sum(src ** 2, -1).view(B, N, 1)
+    dist += torch.sum(dst ** 2, -1).view(B, 1, M)
+    return dist
 
 class SampleNet(nn.Module):
     def __init__(
@@ -92,17 +108,17 @@ class SampleNet(nn.Module):
         y = F.relu(self.bn2(self.conv2(y)))
         y = F.relu(self.bn3(self.conv3(y)))
         y = F.relu(self.bn4(self.conv4(y)))
-        y = F.relu(self.bn5(self.conv5(y)))  # per point feature
-        # Batch x 128 x NumInPoints
+        y = F.relu(self.bn5(self.conv5(y)))  # Batch x 128 x NumInPoints
+
         # Max pooling for global feature vector:
-        y = torch.max(y, 2)[0]  #    global feature   Batch x 128
+        y = torch.max(y, 2)[0]  # Batch x 128
 
         y = F.relu(self.bn_fc1(self.fc1(y)))
         y = F.relu(self.bn_fc2(self.fc2(y)))
         y = F.relu(self.bn_fc3(self.fc3(y)))
         y = self.fc4(y)
 
-        y = y.view(-1, 3, self.num_out_points) #  generated points
+        y = y.view(-1, 3, self.num_out_points)
 
         # Simplified points
         simp = y
@@ -173,8 +189,10 @@ class SampleNet(nn.Module):
         if self.skip_projection or not self.training:
             return torch.tensor(0).to(ref_pc)
         # ref_pc and samp_pc are B x N x 3 matrices
-        cost_p1_p2, cost_p2_p1 = ChamferDistance()(samp_pc, ref_pc)
-        max_cost = torch.max(cost_p1_p2, dim=1)[0]  # furthest point
+        # cost_p1_p2, cost_p2_p1 = ChamferDistance()(samp_pc, ref_pc)
+        cost_p2_p1 = square_distance(ref_pc, samp_pc).min(-1)[0]
+        cost_p1_p2 = square_distance(samp_pc, ref_pc).min(-1)[0]
+        max_cost = torch.max(cost_p1_p2, dim=1)[0]
         max_cost = torch.mean(max_cost)
         cost_p1_p2 = torch.mean(cost_p1_p2)
         cost_p2_p1 = torch.mean(cost_p2_p1)
@@ -188,29 +206,3 @@ class SampleNet(nn.Module):
         return sigma
 
 
-# if __name__ == "__main__":
-#     point_cloud = np.random.randn(1, 3, 1024)
-#     point_cloud_pl = torch.tensor(point_cloud, dtype=torch.float32).cuda()
-#     net = SampleNet(5, 128, group_size=10, initial_temperature=0.1, complete_fps=True)
-#
-#     net.cuda()
-#     net.eval()
-#
-#     for param in net.named_modules():
-#         print(param)
-#
-#     simp, proj, match = net.forward(point_cloud_pl)
-#     simp = simp.detach().cpu().numpy()
-#     proj = proj.detach().cpu().numpy()
-#     match = match.detach().cpu().numpy()
-#
-#     print("*** SIMPLIFIED POINTS ***")
-#     print(simp)
-#     print("*** PROJECTED POINTS ***")
-#     print(proj)
-#     print("*** MATCHED POINTS ***")
-#     print(match)
-#
-#     mse_points = np.sum((proj - match) ** 2, axis=1)
-#     print("projected points vs. matched points error per point:")
-#     print(mse_points)

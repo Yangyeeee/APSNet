@@ -12,9 +12,9 @@ import logging
 from pathlib import Path
 from tqdm import tqdm
 import sys
-import provider
+# import provider
 import importlib
-import shutil
+# import shutil
 import time
 from time import localtime
 from torch.utils.tensorboard import SummaryWriter
@@ -26,8 +26,6 @@ from data.in_out import (
     load_and_split_all_point_clouds_under_folder,
 )
 
-from data.modelnet_loader_torch import ModelNetCls
-
 import torchvision
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 ROOT_DIR = BASE_DIR
@@ -38,11 +36,10 @@ def parse_args():
     '''PARAMETERS'''
     parser = argparse.ArgumentParser('PointNet')
     parser.add_argument('-b','--batch_size', type=int, default=50, help='batch size in training [default: 32]')
-    parser.add_argument('--model', default='point_ae', help='model name [default: pointnet_cls]')
+    parser.add_argument('--model', default='point_ae', help='model name [default: point_ae]')
     parser.add_argument('--epoch',  default=500, type=int, help='number of epoch in training [default: 200]')
-    parser.add_argument('--lr', default=0.0005, type=float, help='learning rate in training [default: 0.01]')
+    parser.add_argument('--lr', default=0.0001, type=float, help='learning rate in training [default: 0.01]')
     parser.add_argument('--gpu', type=str, default='0', help='specify gpu device [default: 0]')
-    parser.add_argument('--num_point', type=int, default=1024, help='Point Number [default: 1024]')
     parser.add_argument('--optimizer', type=str, default='Adam', help='optimizer for training [default: Adam]')
     parser.add_argument('--log_dir', type=str, default=None, help='experiment root')
     parser.add_argument('--sess', type=str, default="default", help='session')
@@ -63,18 +60,11 @@ def get_datasets(args):
     top_in_dir = osp.join(
         project_dir, "data", "shape_net_core_uniform_samples_2048"
     )  # top-dir of where point-clouds are stored., OnUnitCube()
-    top_out_dir = osp.join(project_dir)  # use to save Neural-Net check-points etc.
 
     if args.object_class == "multi":
         class_name = ["chair", "table", "car", "airplane"]
     else:
         class_name = [str(args.object_class)]
-
-    # experiment_name = "autoencoder"
-    # n_pc_points = 2048  # Number of points per model
-    # bneck_size = 128  # Bottleneck-AE size
-    # ae_loss = "chamfer"  # Loss to optimize
-
     # load Point-Clouds
     syn_id = snc_category_to_synth_id()[class_name[0]]
     class_dir = osp.join(top_in_dir, syn_id)
@@ -129,8 +119,8 @@ def eval(args):
 
     try:
         experiment_dir = Path('./log/')
-        checkpoint =torch.load( "./log/0.0001/checkpoints/best_model.pth")
-        start_epoch = checkpoint['epoch']
+        checkpoint =torch.load( "./log/pointae/checkpoints/best_model.pth")
+        start_epoch = 0 #checkpoint['epoch']
         PointAE.load_state_dict(checkpoint['model_state_dict'])
         print('Use pretrain model,epoch {}'.format(start_epoch))
     except:
@@ -140,7 +130,6 @@ def eval(args):
         mean_loss = []
         for j, data in tqdm(enumerate(testDataLoader), total=len(testDataLoader)):
             points, _ = data
-
             points = points.transpose(2, 1)
             points  = points.cuda()
             rec = model(points)
@@ -200,14 +189,6 @@ def main(args):
     testDataLoader = torch.utils.data.DataLoader(testset, batch_size=args.batch_size, shuffle=False, num_workers=4)
     trainDataLoader = torch.utils.data.DataLoader(trainset, batch_size=args.batch_size, shuffle=True, num_workers=4)
 
-
-    # TRAIN_DATASET = ModelNetDataLoader(root=DATA_PATH, npoint=args.num_point, split='train',
-    #                                                  normal_channel=args.normal)
-    # TEST_DATASET = ModelNetDataLoader(root=DATA_PATH, npoint=args.num_point, split='test',
-    #                                                 normal_channel=args.normal)
-    # trainDataLoader = torch.utils.data.DataLoader(TRAIN_DATASET, batch_size=args.batch_size, shuffle=True, num_workers=4)
-    # testDataLoader = torch.utils.data.DataLoader(TEST_DATASET, batch_size=args.batch_size, shuffle=False, num_workers=4)
-
     '''MODEL LOADING'''
     # num_class = 40
     MODEL = importlib.import_module(args.model)
@@ -215,15 +196,6 @@ def main(args):
     # shutil.copy('./models/pointnet_util.py', str(experiment_dir))
 
     PointAE = MODEL.get_model().cuda()
-    # criterion = MODEL.get_loss().cuda()
-    #
-    # try:
-    #     checkpoint = torch.load(str(experiment_dir) + '/checkpoints/best_model.pth')
-    #     start_epoch = checkpoint['epoch']
-    #     classifier.load_state_dict(checkpoint['model_state_dict'])
-    #     log_string('Use pretrain model')
-    # except:
-    #     log_string('No existing model, starting training from scratch...')
     start_epoch = 0
 
 
@@ -258,7 +230,7 @@ def main(args):
             # points[:,:, 0:3] = provider.shift_point_cloud(points[:,:, 0:3])
             # points = torch.Tensor(points)
             #
-            #
+
             points = points.transpose(2, 1)
             points = points.cuda()
             optimizer.zero_grad()
@@ -272,7 +244,6 @@ def main(args):
             global_step += 1
 
         loss = np.mean(mean_loss)
-        # log_string('Train Instance Accuracy: %f' % train_instance_acc)
         writer.add_scalar('loss/train_ae', loss, epoch)
         print('Train loss', loss.item())
 
@@ -308,16 +279,10 @@ if __name__ == '__main__':
 
     if args.test == 0:
         loss = []
-        lrs = [0.0001]
         sess = args.sess
-        for lr in lrs:
-            args.lr = lr
-            args.log_dir = str(lr)
-            args.sess =  "point_ae_lr{}".format(args.lr)
-            print(args)
-            res = main(args)
-            loss.append(res)
-            print(loss)
+        args.sess =  "point_ae_lr{}".format(args.lr)
+        res = main(args)
+        loss.append(res)
         print(loss)
     else:
         loss = eval(args)

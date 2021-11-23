@@ -39,7 +39,7 @@ def append_to_GLOBALS(key, value):
 def options(argv=None, parser=None):
 
 
-    parser = argparse.ArgumentParser("SampleNet: Differentiable Point Cloud Sampling")
+    parser = argparse.ArgumentParser()
 
     parser.add_argument("--skip-projection", action="store_true", help="Do not project points in training")
 
@@ -72,7 +72,7 @@ def options(argv=None, parser=None):
     parser.add_argument('--sampler', default="samplenet", choices=['fps', 'samplenet', 'random', 'none'], type=str,
                         help='Sampling method.')
 
-    parser.add_argument('--transfer-from', type=str, default="log/baseline/PCRNet1024_model_best.pth",
+    parser.add_argument('--transfer-from', type=str,
                         metavar='PATH', help='path to trained pcrnet')
     parser.add_argument('--train-pcrnet', action='store_true',
                         help='Allow PCRNet training.')
@@ -291,11 +291,13 @@ class Action:
                 sampler.eval()
 
         elif self.SAMPLER == "fps":
+            from src.fps import FPSSampler
             sampler = FPSSampler(
                 self.NUM_OUT_POINTS, permute=True, input_shape="bnc", output_shape="bnc"
             )
 
         elif self.SAMPLER == "random":
+            from src.random_sampling import RandomSampler
             sampler = RandomSampler(
                 self.NUM_OUT_POINTS, input_shape="bnc", output_shape="bnc"
             )
@@ -653,13 +655,11 @@ def get_datasets(args):
 
 if __name__ == "__main__":
 
-    # from src import sputils
-
     ARGS = options()
     os.environ["CUDA_VISIBLE_DEVICES"] = ARGS.gpu
     from data.modelnet_loader_torch import ModelNetCls
     from models import pcrnet
-    from src import ChamferDistance, FPSSampler, RandomSampler
+    from src.chamfer_distance.chamfer_distance import ChamferDistance
     from src.samplenet import SampleNet
     from src.pctransforms import OnUnitCube, PointcloudToTensor
     from src.qdataset import QuaternionFixedDataset, QuaternionTransform, rad_to_deg

@@ -48,11 +48,11 @@ void chamfer_distance_backward_cuda(
     at::Tensor idx1, 
     at::Tensor idx2)
 {
-    ChamferDistanceGradKernelLauncher(xyz1.size(0), xyz1.size(1), xyz1.data_ptr<float>(),
-                                           xyz2.size(1), xyz2.data_ptr<float>(),
-                                           graddist1.data_ptr<float>(), idx1.data_ptr<int>(),
-                                           graddist2.data_ptr<float>(), idx2.data_ptr<int>(),
-                                           gradxyz1.data_ptr<float>(), gradxyz2.data_ptr<float>());
+    ChamferDistanceGradKernelLauncher(xyz1.size(0), xyz1.size(1), xyz1.data<float>(),
+                                           xyz2.size(1), xyz2.data<float>(),
+                                           graddist1.data<float>(), idx1.data<int>(),
+                                           graddist2.data<float>(), idx2.data<int>(),
+                                           gradxyz1.data<float>(), gradxyz2.data<float>());
 }
 
 
@@ -99,12 +99,12 @@ void chamfer_distance_forward(
     const int n = xyz1.size(1);
     const int m = xyz2.size(1);
 
-    const float* xyz1_data = xyz1.data_ptr<float>();
-    const float* xyz2_data = xyz2.data_ptr<float>();
-    float* dist1_data = dist1.data_ptr<float>();
-    float* dist2_data = dist2.data_ptr<float>();
-    int* idx1_data = idx1.data_ptr<int>();
-    int* idx2_data = idx2.data_ptr<int>();
+    const float* xyz1_data = xyz1.data<float>();
+    const float* xyz2_data = xyz2.data<float>();
+    float* dist1_data = dist1.data<float>();
+    float* dist2_data = dist2.data<float>();
+    int* idx1_data = idx1.data<int>();
+    int* idx2_data = idx2.data<int>();
 
     nnsearch(batchsize, n, m, xyz1_data, xyz2_data, dist1_data, idx1_data);
     nnsearch(batchsize, m, n, xyz2_data, xyz1_data, dist2_data, idx2_data);
@@ -125,14 +125,14 @@ void chamfer_distance_backward(
     const int n = xyz1.size(1);
     const int m = xyz2.size(1);
 
-    const float* xyz1_data = xyz1.data_ptr<float>();
-    const float* xyz2_data = xyz2.data_ptr<float>();
-    float* gradxyz1_data = gradxyz1.data_ptr<float>();
-    float* gradxyz2_data = gradxyz2.data_ptr<float>();
-    float* graddist1_data = graddist1.data_ptr<float>();
-    float* graddist2_data = graddist2.data_ptr<float>();
-    const int* idx1_data = idx1.data_ptr<int>();
-    const int* idx2_data = idx2.data_ptr<int>();
+    const float* xyz1_data = xyz1.data<float>();
+    const float* xyz2_data = xyz2.data<float>();
+    float* gradxyz1_data = gradxyz1.data<float>();
+    float* gradxyz2_data = gradxyz2.data<float>();
+    float* graddist1_data = graddist1.data<float>();
+    float* graddist2_data = graddist2.data<float>();
+    const int* idx1_data = idx1.data<int>();
+    const int* idx2_data = idx2.data<int>();
 
     for (int i = 0; i < b*n*3; i++)
         gradxyz1_data[i] = 0;

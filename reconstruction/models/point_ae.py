@@ -4,16 +4,6 @@ import torch.nn.functional as F
 from pointnet import Encoder, Decoder
 
 
-try:
-    # from .soft_projection import SoftProjection
-    from .chamfer_distance import ChamferDistance
-    # from . import sputils
-except (ModuleNotFoundError, ImportError) as err:
-    print(err.__repr__())
-    # from soft_projection import SoftProjection
-    from chamfer_distance import ChamferDistance
-    # import sputils
-
 def square_distance(src, dst):
     """
     Calculate Euclid distance between each two points.
@@ -48,18 +38,12 @@ class get_model(nn.Module):
         self.encoder = Encoder( channel=channel)
         self.decoder = Decoder()
 
-        #self.relu = nn.ReLU()
-
     def forward(self, x):
         feat = self.encoder(x)
         recon = self.decoder(feat)
         return recon
 
     def get_loss(self, x, recon):
-        # if self.skip_projection or not self.training:
-        #     return torch.tensor(0).to(ref_pc)
-        # ref_pc and samp_pc are B x N x 3 matrices
-        # cost_p1_p2, cost_p2_p1 = ChamferDistance()(samp_pc, ref_pc)
         cost_p2_p1 = square_distance(x, recon).min(-1)[0]
         cost_p1_p2 = square_distance(recon, x).min(-1)[0]
         cost_p1_p2 = torch.mean(cost_p1_p2)
@@ -68,28 +52,9 @@ class get_model(nn.Module):
         return loss
 
     def get_per_loss(self, x, recon):
-        # if self.skip_projection or not self.training:
-        #     return torch.tensor(0).to(ref_pc)
-        # ref_pc and samp_pc are B x N x 3 matrices
-        # cost_p1_p2, cost_p2_p1 = ChamferDistance()(samp_pc, ref_pc)
         cost_p2_p1 = square_distance(x, recon).min(-1)[0]
         cost_p1_p2 = square_distance(recon, x).min(-1)[0]
-        # cost_p1_p2 = torch.mean(cost_p1_p2)
-        # cost_p2_p1 = torch.mean(cost_p2_p1)
         loss = cost_p1_p2 + cost_p2_p1
         return loss.mean(-1)
 
 
-
-
-# class get_loss(torch.nn.Module):
-#     def __init__(self, mat_diff_loss_scale=0.001):
-#         super(get_loss, self).__init__()
-#         self.mat_diff_loss_scale = mat_diff_loss_scale
-#
-#     def forward(self, pred, target, trans_feat):
-#         loss = F.nll_loss(pred, target)
-#         mat_diff_loss = feature_transform_reguliarzer(trans_feat)
-#
-#         total_loss = loss + mat_diff_loss * self.mat_diff_loss_scale
-#         return total_loss

@@ -46,7 +46,7 @@ class ModelNetCls(data.Dataset):
         self.transforms = transforms
 
         self.folder = folder
-        self.data_dir = os.path.join(BASE_DIR, self.folder)
+        self.data_dir =  os.path.join(BASE_DIR, self.folder)
         self.url = url
 
         if download and not os.path.exists(self.data_dir):
