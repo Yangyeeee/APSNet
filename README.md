@@ -1,9 +1,14 @@
-# APSNet: Attention Based Point Cloud Sampling
+# 
 
-## Installation
+
+# APSNet: Attention Based Point Cloud Sampling
+This reposityory contains the PyTorch implementation of "APSNet: Attention Based Point Cloud Sampling", The 33rd British Machine Vision Conference (BMVC).
+
+
+<img width="1120" alt="predictions2" src="">
+## Requirements
 
 ### 1. Update gcc to 7.0
-
 ### 2. Create env
 
 ```bash
@@ -64,3 +69,14 @@ python main.py -o log/SAMPLENET64 --datafolder car_hdf5_2048 --transfer-from log
 
 
 ```
+
+
+## Citation
+If you found this code useful, please cite our paper.
+
+    @article{APSNet,
+      title   = {APSNet: Attention Based Point Cloud Sampling},
+      author  = {Yang Ye, Xiulong Yang and Shihao Ji}, 
+      journal = { The 33rd British Machine Vision Conference (BMVC)},
+      year    = {2022}
+    }
