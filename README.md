@@ -5,8 +5,10 @@
 This reposityory contains the PyTorch implementation of "APSNet: Attention Based Point Cloud Sampling", The 33rd British Machine Vision Conference (BMVC).
 
 
-<img width="1120" alt="predictions2" src="https://github.com/Yangyeeee/APSNet/blob/main/reconstruction.png">
-## Requirements
+<img width="700"  src="https://github.com/Yangyeeee/APSNet/blob/main/reconstruction.png">
+Visualization of sampled points and reconstructed point clouds by APSNet (1st row) and SampleNet (2nd row). The red dots are the sampled points; the highlighted yellow regions in APSNet results are points with high attention scores and the number specify the order of sampled points. (a) Sampled points when $m=8$; (b) Reconstruction when $m=8$, NRE(APSNet)=2.55, NRE(SampleNet)=5.20; (c) Sampled points when $m=16$; (d) Reconstruction when $m=16$, NRE(APSNet)=1.57, NRE(SampleNet)=2.34.
+
+## Setup
 
 ### 1. Update gcc to 7.0
 ### 2. Create env
