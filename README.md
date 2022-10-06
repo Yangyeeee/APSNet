@@ -5,7 +5,7 @@
 This reposityory contains the PyTorch implementation of "APSNet: Attention Based Point Cloud Sampling", The 33rd British Machine Vision Conference (BMVC).
 
 
-<img width="1120" alt="predictions2" src="">
+<img width="1120" alt="predictions2" src="https://github.com/Yangyeeee/APSNet/blob/main/reconstruction.png">
 ## Requirements
 
 ### 1. Update gcc to 7.0
